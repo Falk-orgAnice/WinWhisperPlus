@@ -1,6 +1,6 @@
 # WinWhisperPlus
 
-Ein Windows-Tool zur lokalen Spracherkennung auf Basis von OpenAI Whisper.  
+Ein Windows-Tool zur lokalen Spracherkennung auf Basis von whisper.cpp.
 A Windows speech-recognition tool powered by OpenAI Whisper running entirely locally.
 
 ## Features
@@ -29,7 +29,7 @@ Both hotkeys are fully configurable in the settings dialog.
 
 - Windows 10 64-bit or newer
 - Python 3.10 to 3.14 for source usage and release builds
-- NVIDIA GPU recommended (for faster transcription)
+- Vulkan-fähige GPU empfohlen (AMD, NVIDIA oder Intel)
 
 ## Installation
 
@@ -39,8 +39,8 @@ For development or direct source usage:
 pip install -r requirements.txt
 ```
 
-> **Note:** `torch` may require a separate CUDA-enabled install.  
-> See [pytorch.org](https://pytorch.org/get-started/locally/) for the right command for your system.
+> Für die GPU-Beschleunigung im Release baut das Build-Skript whisper.cpp mit
+> Vulkan. Dazu werden Visual Studio C++ Build Tools, CMake und das Vulkan SDK benötigt.
 
 ## Windows Release Package
 
@@ -108,6 +108,8 @@ Click **Einstellungen…** in the tray menu to open the settings dialog where yo
 - Select the default language (Deutsch / Polski / English).
 - Select the interface language (Deutsch / Polski / English).
 - Choose a specific microphone from the dropdown.
+- Choose automatic Vulkan processing, a detected Vulkan GPU, or CPU-only processing.
+- Optionally keep active Whisper models loaded in memory for faster subsequent transcriptions.
 - Select the Whisper model size (`tiny` → `large`; larger = more accurate but slower).
 - Enable live transcription if you want stable partial text to be inserted during an active recording.
 

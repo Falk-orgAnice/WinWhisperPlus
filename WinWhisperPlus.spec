@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+import os
+from pathlib import Path
 
 
 block_cipher = None
@@ -10,9 +11,15 @@ datas = [
     ("assets/Microphone.ico", "assets"),
     ("VERSION", "."),
 ]
-datas += collect_data_files("whisper")
 
-hiddenimports = collect_submodules("whisper") + [
+whispercpp_dir = Path(os.environ.get("WINWHISPERPLUS_WHISPERCPP_DIR", "build/whispercpp-runtime"))
+if not (whispercpp_dir / "whisper-cli.exe").is_file():
+    raise SystemExit(
+        "whisper.cpp runtime missing. Run scripts/build-release.ps1, which builds it before PyInstaller."
+    )
+datas.append((str(whispercpp_dir), "whispercpp"))
+
+hiddenimports = [
     "PyQt6.QtSvg",
 ]
 

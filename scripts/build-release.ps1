@@ -22,6 +22,11 @@ $installerScriptPath = Join-Path $repoRoot "installer\WinWhisperPlus.iss"
 $installerBaseExePath = Join-Path $distDir "WinWhisperPlus-Setup.exe"
 $versionFilePath = Join-Path $repoRoot "VERSION"
 $pythonVersionArgs = @("-3.14", "-3.13", "-3.12", "-3.11", "-3.10")
+$whisperCppVersion = "v1.9.1"
+$whisperCppWorkDir = Join-Path $env:TEMP "wwp-wcpp"
+$whisperCppSourceDir = Join-Path $whisperCppWorkDir "src"
+$whisperCppBuildDir = Join-Path $whisperCppWorkDir "build"
+$whisperCppRuntimeDir = Join-Path $repoRoot "build\whispercpp-runtime"
 
 function Invoke-Step {
     param(
@@ -93,6 +98,82 @@ function Resolve-InnoSetupCompiler {
     }
 
     throw "Inno Setup Compiler 'iscc.exe' wurde nicht gefunden. Bitte Inno Setup 7 oder 6 installieren oder -InnoSetupCompilerPath angeben."
+}
+
+function Resolve-CMake {
+    $cmakeCommand = Get-Command cmake.exe -ErrorAction SilentlyContinue
+    if ($cmakeCommand) {
+        return $cmakeCommand.Source
+    }
+
+    $vswherePath = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswherePath) {
+        $vsInstallPath = & $vswherePath -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        if ($vsInstallPath) {
+            $visualStudioCmake = Join-Path $vsInstallPath "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+            if (Test-Path $visualStudioCmake) {
+                return $visualStudioCmake
+            }
+        }
+    }
+
+    throw "CMake wurde nicht gefunden. Installiere CMake oder die Visual-Studio-Komponente fuer CMake-Unterstuetzung."
+}
+
+function Resolve-VulkanSdk {
+    $sdkPath = $env:VULKAN_SDK
+    if (-not $sdkPath) {
+        $sdkPath = Get-ChildItem "C:\VulkanSDK" -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            Where-Object { Test-Path (Join-Path $_.FullName "Bin\glslc.exe") } |
+            Select-Object -First 1 -ExpandProperty FullName
+    }
+    if (-not $sdkPath -or -not (Test-Path (Join-Path $sdkPath "Bin\glslc.exe"))) {
+        throw "Das Vulkan SDK wurde nicht gefunden. Installiere das LunarG Vulkan SDK und setze VULKAN_SDK."
+    }
+    return $sdkPath
+}
+
+function Build-WhisperCppVulkanRuntime {
+    $cmakeExe = Resolve-CMake
+    $vulkanSdk = Resolve-VulkanSdk
+    $env:VULKAN_SDK = $vulkanSdk
+    $gitExe = Get-Command git.exe -ErrorAction SilentlyContinue
+    if (-not $gitExe) {
+        throw "Git wurde nicht gefunden. Es wird benoetigt, um whisper.cpp $whisperCppVersion abzurufen."
+    }
+
+    if (Test-Path $whisperCppWorkDir) {
+        Remove-Item -Recurse -Force $whisperCppWorkDir
+    }
+    New-Item -ItemType Directory -Force -Path $whisperCppWorkDir | Out-Null
+
+    Invoke-NativeCommand {
+        & $gitExe.Source clone --depth 1 --branch $whisperCppVersion `
+            https://github.com/ggml-org/whisper.cpp.git $whisperCppSourceDir
+    } "whisper.cpp konnte nicht abgerufen werden."
+
+    Invoke-NativeCommand {
+        & $cmakeExe -S $whisperCppSourceDir -B $whisperCppBuildDir `
+            -DGGML_VULKAN=1 -DWHISPER_BUILD_TESTS=OFF `
+            "-DVulkan_ROOT=$vulkanSdk"
+    } "whisper.cpp konnte nicht fuer Vulkan konfiguriert werden."
+    Invoke-NativeCommand {
+        & $cmakeExe --build $whisperCppBuildDir --config Release --target whisper-cli whisper-server
+    } "whisper.cpp konnte nicht gebaut werden."
+
+    $cli = Get-ChildItem -Path $whisperCppBuildDir -Recurse -Filter "whisper-cli.exe" |
+        Select-Object -First 1
+    if (-not $cli) {
+        throw "Der whisper.cpp-Build hat keine whisper-cli.exe erzeugt."
+    }
+    if (-not (Test-Path (Join-Path $cli.DirectoryName "whisper-server.exe"))) {
+        throw "Der whisper.cpp-Build hat keine whisper-server.exe erzeugt."
+    }
+    New-Item -ItemType Directory -Force -Path $whisperCppRuntimeDir | Out-Null
+    Copy-Item -Path (Join-Path $cli.DirectoryName "*") -Destination $whisperCppRuntimeDir -Force
+    $env:WINWHISPERPLUS_WHISPERCPP_DIR = $whisperCppRuntimeDir
 }
 
 function Get-ReleaseVersion {
@@ -214,6 +295,10 @@ Invoke-Step "Bereinige alte Build-Ausgaben" {
     Remove-BuildPath $zipPath
     Remove-BuildPath $installerBaseExePath
     Remove-BuildPath $installerExePath
+}
+
+Invoke-Step "Baue whisper.cpp mit Vulkan" {
+    Build-WhisperCppVulkanRuntime
 }
 
 Invoke-Step "Baue WinWhisperPlus.exe" {

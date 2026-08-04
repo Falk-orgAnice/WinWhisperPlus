@@ -73,3 +73,14 @@ def test_recorder_double_start():
     r.start()  # second call should be a no-op
     assert r.is_recording
     r.stop()
+
+
+def test_resample_native_microphone_rate_to_whisper_rate():
+    from core.recorder import Recorder
+
+    frame = np.array([[0.0], [1.0], [0.0], [-1.0]], dtype=np.float32)
+    resampled = Recorder._resample_to_whisper_rate(frame, source_rate=8_000)
+
+    assert resampled.dtype == np.float32
+    assert resampled.shape == (8, 1)
+    assert resampled[0, 0] == pytest.approx(0.0)
