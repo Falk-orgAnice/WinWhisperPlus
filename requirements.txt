@@ -1,3 +1,6 @@
+# Runtime dependencies for source usage.
+# Whisper inference uses the bundled whisper.cpp Vulkan runtime; PyTorch,
+# ROCm, CUDA, and openai-whisper are intentionally not required.
 sounddevice>=0.4.6
 numpy>=1.24.0
 PyQt6>=6.5.0
