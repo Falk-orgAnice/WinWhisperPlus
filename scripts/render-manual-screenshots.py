@@ -46,6 +46,8 @@ def _prepare_settings() -> Settings:
     settings.auto_insert = True
     settings.live_transcription_enabled = True
     settings.emoji_mode_enabled = True
+    settings.compute_device = "gpu:0"
+    settings.keep_model_loaded = True
     return settings
 
 
@@ -66,7 +68,8 @@ def main() -> int:
         {"index": 1, "name": "Demo-Mikrofon"},
         {"index": 2, "name": "Headset-Mikrofon"},
     ]
-    settings_window_module.app_version = lambda: "1.0.3"
+    settings_window_module.app_version = lambda: "1.1"
+    settings_window_module.list_vulkan_devices = lambda: [(0, "AMD Radeon 890M")]
 
     app = QApplication.instance() or QApplication([])
     app.setApplicationName("WinWhisperPlus Manual Screenshots")
@@ -83,7 +86,7 @@ def main() -> int:
     _save_widget(status_recording, "status-recording.png")
 
     settings_window = SettingsWindow(settings)
-    _save_widget(settings_window, "settings.png", min_size=QSize(520, 560))
+    _save_widget(settings_window, "settings.png", min_size=QSize(520, 640))
 
     history_window = HistoryWindow(settings=settings)
     history_window.set_history(

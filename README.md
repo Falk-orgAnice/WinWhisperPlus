@@ -108,7 +108,7 @@ The application starts minimised to the system tray.
 Double-click the tray icon or use the hotkey to start/stop recording.
 
 For end-user instructions with screenshots, see the German
-[Benutzerhandbuch](docs/benutzerhandbuch.md).
+[Benutzerhandbuch](docs/WinWhisperPlus%20Benutzerhandbuch.md).
 
 ## Configuration
 
