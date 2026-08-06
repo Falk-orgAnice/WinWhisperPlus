@@ -27,6 +27,7 @@ from PyQt6.QtGui import QKeySequence
 from config.localization import UI_LANGUAGES, localized_spoken_language_name, tr
 from config.settings import LANGUAGE_CYCLE, UI_LANGUAGE_CYCLE, Settings
 from core.recorder import list_microphones
+from core.transcriber import COMPUTE_DEVICE_AUTO, COMPUTE_DEVICE_CPU, list_vulkan_devices
 from utils.resources import app_version
 
 if TYPE_CHECKING:
@@ -151,6 +152,17 @@ class SettingsWindow(QDialog):
         model_layout.addWidget(self._model_note)
         root.addWidget(self._model_group)
 
+        # --- Compute device -------------------------------------------
+        self._compute_group = QGroupBox()
+        compute_layout = QHBoxLayout(self._compute_group)
+        self._compute_label = QLabel()
+        compute_layout.addWidget(self._compute_label)
+        self._compute_combo = QComboBox()
+        compute_layout.addWidget(self._compute_combo)
+        root.addWidget(self._compute_group)
+        self._keep_model_loaded_cb = QCheckBox()
+        root.addWidget(self._keep_model_loaded_cb)
+
         # --- Auto insert -----------------------------------------------
         self._auto_insert_cb = QCheckBox()
         root.addWidget(self._auto_insert_cb)
@@ -196,6 +208,10 @@ class SettingsWindow(QDialog):
         self._live_model_label.setText(tr("live_model", self._settings))
         self._final_model_label.setText(tr("final_model", self._settings))
         self._model_note.setText(tr("model_note", self._settings))
+        self._compute_group.setTitle(tr("group_compute", self._settings))
+        self._compute_label.setText(tr("compute_device", self._settings))
+        self._keep_model_loaded_cb.setText(tr("keep_model_loaded", self._settings))
+        self._keep_model_loaded_cb.setToolTip(tr("keep_model_loaded_tooltip", self._settings))
         self._auto_insert_cb.setText(tr("auto_insert", self._settings))
         self._live_transcription_cb.setText(tr("live_transcription", self._settings))
         self._live_transcription_cb.setToolTip(tr("live_transcription_tooltip", self._settings))
@@ -265,10 +281,42 @@ class SettingsWindow(QDialog):
             if self._final_model_combo.itemText(i) == self._settings.final_whisper_model:
                 self._final_model_combo.setCurrentIndex(i)
 
+        self._refresh_compute_devices()
+
         self._auto_insert_cb.setChecked(self._settings.auto_insert)
+        self._keep_model_loaded_cb.setChecked(self._settings.keep_model_loaded)
         self._live_transcription_cb.setChecked(self._settings.live_transcription_enabled)
         self._emoji_mode_cb.setChecked(self._settings.emoji_mode_enabled)
         self._refresh_mics()
+
+    def _refresh_compute_devices(self) -> None:
+        """Populate CPU, automatic, and all Vulkan devices found at runtime."""
+        selected = self._settings.compute_device
+        self._compute_combo.clear()
+        self._compute_combo.addItem(tr("compute_auto", self._settings), COMPUTE_DEVICE_AUTO)
+        self._compute_combo.addItem(tr("compute_cpu", self._settings), COMPUTE_DEVICE_CPU)
+        available_ids: set[str] = set()
+        for index, name in list_vulkan_devices():
+            device_id = f"gpu:{index}"
+            available_ids.add(device_id)
+            self._compute_combo.addItem(
+                tr("compute_gpu", self._settings, index=index, name=name),
+                device_id,
+            )
+
+        # Preserve a configured GPU choice even when it is temporarily
+        # unavailable (for example when an external GPU is disconnected).
+        if selected.startswith("gpu:") and selected not in available_ids:
+            index = selected.removeprefix("gpu:")
+            self._compute_combo.addItem(
+                tr("compute_gpu_unavailable", self._settings, index=index),
+                selected,
+            )
+
+        for i in range(self._compute_combo.count()):
+            if self._compute_combo.itemData(i) == selected:
+                self._compute_combo.setCurrentIndex(i)
+                break
 
     def _save(self) -> None:
         self._settings.hotkey_record = self._hk_record.text().strip()
@@ -279,6 +327,8 @@ class SettingsWindow(QDialog):
         self._settings.microphone_name = None if self._mic_combo.currentIndex() == 0 else self._mic_combo.currentText()
         self._settings.live_whisper_model = self._live_model_combo.currentText()
         self._settings.final_whisper_model = self._final_model_combo.currentText()
+        self._settings.compute_device = self._compute_combo.currentData()
+        self._settings.keep_model_loaded = self._keep_model_loaded_cb.isChecked()
         self._settings.auto_insert = self._auto_insert_cb.isChecked()
         self._settings.live_transcription_enabled = self._live_transcription_cb.isChecked()
         self._settings.emoji_mode_enabled = self._emoji_mode_cb.isChecked()

@@ -31,6 +31,8 @@ def test_default_settings():
     assert s.whisper_model == "small"
     assert s.live_whisper_model == "tiny"
     assert s.final_whisper_model == "small"
+    assert s.compute_device == "auto"
+    assert s.keep_model_loaded is False
     assert s.auto_insert is True
     assert s.live_transcription_enabled is False
 
@@ -111,6 +113,25 @@ def test_dual_model_settings_persist() -> None:
     assert s2.live_whisper_model == "base"
     assert s2.final_whisper_model == "small"
     assert s2.whisper_model == "small"
+
+
+def test_compute_device_persists_and_rejects_invalid_values() -> None:
+    s = _make_settings()
+    s.compute_device = "gpu:1"
+    s.save()
+
+    s2 = _make_settings()
+    assert s2.compute_device == "gpu:1"
+    s2.compute_device = "invalid"
+    assert s2.compute_device == "gpu:1"
+
+
+def test_keep_model_loaded_persists() -> None:
+    s = _make_settings()
+    s.keep_model_loaded = True
+    s.save()
+
+    assert _make_settings().keep_model_loaded is True
 
 
 def test_legacy_whisper_model_migrates_to_final(tmp_path) -> None:

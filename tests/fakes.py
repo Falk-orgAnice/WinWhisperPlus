@@ -91,6 +91,15 @@ class FakeTranscriber:
     def set_model(self, model_name: str) -> None:  # noqa: ARG002
         pass
 
+    def set_compute_device(self, compute_device: str) -> None:  # noqa: ARG002
+        pass
+
+    def set_keep_model_loaded(self, keep_model_loaded: bool) -> None:  # noqa: ARG002
+        pass
+
+    def close(self) -> None:
+        pass
+
     def transcribe(self, audio: np.ndarray, language: Optional[str] = None) -> str:  # noqa: ARG002
         self.transcribe_call_count += 1
         if self._delay:

@@ -113,8 +113,16 @@ class Application(QObject):
             self._settings.final_whisper_model,
             test_mode,
         )
-        self._transcriber_live = transcriber_live or Transcriber(model_name=self._settings.live_whisper_model)
-        self._transcriber_final = transcriber_final or Transcriber(model_name=self._settings.final_whisper_model)
+        self._transcriber_live = transcriber_live or Transcriber(
+            model_name=self._settings.live_whisper_model,
+            compute_device=self._settings.compute_device,
+            keep_model_loaded=self._settings.keep_model_loaded,
+        )
+        self._transcriber_final = transcriber_final or Transcriber(
+            model_name=self._settings.final_whisper_model,
+            compute_device=self._settings.compute_device,
+            keep_model_loaded=self._settings.keep_model_loaded,
+        )
         self._injected_recorder = recorder   # kept to skip rebuild in test mode
         self._hotkey_mgr = HotkeyManager()
         self._history: list[str] = []  # Session history of recognized texts (max 50)
@@ -188,6 +196,8 @@ class Application(QObject):
         self._live_stop_requested.set()
         if self._recorder.is_recording:
             self._recorder.stop()
+        self._transcriber_live.close()
+        self._transcriber_final.close()
 
     # ------------------------------------------------------------------
     # Signal wiring
@@ -242,11 +252,17 @@ class Application(QObject):
         self._recorder = self._build_recorder(settings)
         self._transcriber_live.set_model(settings.live_whisper_model)
         self._transcriber_final.set_model(settings.final_whisper_model)
+        self._transcriber_live.set_compute_device(settings.compute_device)
+        self._transcriber_final.set_compute_device(settings.compute_device)
+        self._transcriber_live.set_keep_model_loaded(settings.keep_model_loaded)
+        self._transcriber_final.set_keep_model_loaded(settings.keep_model_loaded)
         LOGGER.info(
-            "Settings angewendet | live_enabled=%s live_model=%s final_model=%s",
+            "Settings angewendet | live_enabled=%s live_model=%s final_model=%s compute_device=%s keep_model_loaded=%s",
             settings.live_transcription_enabled,
             settings.live_whisper_model,
             settings.final_whisper_model,
+            settings.compute_device,
+            settings.keep_model_loaded,
         )
         if not self._test_mode:
             # Update the displayed hotkey in the status window

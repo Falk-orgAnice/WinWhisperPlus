@@ -33,6 +33,7 @@ class Recorder:
         overlap_seconds: float = 0.5,
     ) -> None:
         self._device_index = device_index
+        self._input_sample_rate = self._resolve_input_sample_rate()
         self._on_chunk = on_chunk
         self._chunk_samples = max(1, int(chunk_seconds * SAMPLE_RATE))
         self._step_samples = max(1, int((chunk_seconds - overlap_seconds) * SAMPLE_RATE))
@@ -80,20 +81,69 @@ class Recorder:
     def _record_loop(self) -> None:
         def callback(indata: np.ndarray, frames: int, time, status) -> None:  # noqa: ARG001
             if self._recording.is_set():
-                frame = indata.copy()
+                frame = self._resample_to_whisper_rate(indata.copy(), self._input_sample_rate)
                 self._frames.append(frame)
                 if self._on_chunk is not None:
                     self._append_chunk_frame(frame)
 
-        with sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype="float32",
-            device=self._device_index,
-            callback=callback,
-        ):
-            while self._recording.is_set():
-                sd.sleep(100)
+        try:
+            with sd.InputStream(
+                samplerate=self._input_sample_rate,
+                channels=CHANNELS,
+                dtype="float32",
+                device=self._device_index,
+                callback=callback,
+            ):
+                LOGGER.info(
+                    "Mikrofonaufnahme gestartet | device=%s input_rate=%s target_rate=%s",
+                    self._device_index,
+                    self._input_sample_rate,
+                    SAMPLE_RATE,
+                )
+                while self._recording.is_set():
+                    sd.sleep(100)
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Mikrofonaufnahme konnte nicht gestartet werden | device=%s", self._device_index)
+            self._recording.clear()
+
+    def _resolve_input_sample_rate(self) -> int:
+        """Use 16 kHz when supported, otherwise the device's native rate."""
+        if self._device_index is None:
+            return SAMPLE_RATE
+        try:
+            sd.check_input_settings(
+                device=self._device_index,
+                samplerate=SAMPLE_RATE,
+                channels=CHANNELS,
+                dtype="float32",
+            )
+            return SAMPLE_RATE
+        except Exception:  # noqa: BLE001
+            try:
+                native_rate = int(sd.query_devices(self._device_index)["default_samplerate"])
+                if native_rate > 0:
+                    LOGGER.info(
+                        "Mikrofon nutzt native Samplerate | device=%s input_rate=%s",
+                        self._device_index,
+                        native_rate,
+                    )
+                    return native_rate
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("Samplerate des Mikrofons konnte nicht ermittelt werden | device=%s", self._device_index)
+            return SAMPLE_RATE
+
+    @staticmethod
+    def _resample_to_whisper_rate(frame: np.ndarray, source_rate: int) -> np.ndarray:
+        """Linearly resample a callback frame to Whisper's required 16 kHz."""
+        if source_rate == SAMPLE_RATE:
+            return frame.astype(np.float32, copy=False)
+        samples = np.asarray(frame, dtype=np.float32).reshape(-1)
+        if len(samples) == 0:
+            return samples.reshape(0, 1)
+        target_size = max(1, round(len(samples) * SAMPLE_RATE / source_rate))
+        positions = np.arange(target_size, dtype=np.float64) * source_rate / SAMPLE_RATE
+        resampled = np.interp(positions, np.arange(len(samples)), samples)
+        return resampled.astype(np.float32).reshape(-1, 1)
 
     def _append_chunk_frame(self, frame: np.ndarray) -> None:
         self._captured_samples += len(frame)

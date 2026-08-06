@@ -17,6 +17,9 @@ DEFAULT_SETTINGS = {
     "whisper_model": "small",   # legacy alias for final_whisper_model
     "live_whisper_model": "tiny",
     "final_whisper_model": "small",
+    # "auto" = default Vulkan GPU, "cpu" = CPU only, "gpu:<index>" = Vulkan device index
+    "compute_device": "auto",
+    "keep_model_loaded": False,
     "auto_insert": True,
     "live_transcription_enabled": False,
     "live_chunk_seconds": 2.0,
@@ -178,6 +181,25 @@ class Settings:
     def final_whisper_model(self, value: str) -> None:
         self._data["final_whisper_model"] = value
         self._data["whisper_model"] = value
+
+    @property
+    def compute_device(self) -> str:
+        return self._data["compute_device"]
+
+    @compute_device.setter
+    def compute_device(self, value: str) -> None:
+        if value == "auto" or value == "cpu" or (
+            isinstance(value, str) and value.startswith("gpu:") and value[4:].isdigit()
+        ):
+            self._data["compute_device"] = value
+
+    @property
+    def keep_model_loaded(self) -> bool:
+        return bool(self._data["keep_model_loaded"])
+
+    @keep_model_loaded.setter
+    def keep_model_loaded(self, value: bool) -> None:
+        self._data["keep_model_loaded"] = bool(value)
 
     @property
     def auto_insert(self) -> bool:
