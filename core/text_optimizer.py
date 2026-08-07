@@ -27,11 +27,12 @@ MODEL_SHA256_FILENAME = "text-model.sha256"
 _DEFAULT_TIMEOUT_SECONDS = 45.0
 _MESSAGE_GREETING_PATTERN = re.compile(
     r"^(?:hallo|hi|hey|hello|dear|liebe(?:r|s)?|guten\s+(?:morgen|tag|abend)|"
-    r"good\s+(?:morning|afternoon|evening)|cześć|dzien dobry|dzień dobry|drogi|droga)\b",
+    r"good\s+(?:morning|afternoon|evening)|bonjour|salut|cher(?:e)?|chère|"
+    r"beste|goede?\s+(?:morgen|middag|avond)|cześć|dzien dobry|dzień dobry|drogi|droga)\b",
     re.IGNORECASE,
 )
 _SENTENCE_LINE_BREAK_PATTERN = re.compile(
-    r"(?<=[.!?])[ \t]+(?=[A-ZÄÖÜĄĆĘŁŃÓŚŹŻ])"
+    r"(?<=[.!?])[ \t]+(?=[A-ZÄÖÜÀÂÇÉÈÊËÎÏÔÙÛŸŒĄĆĘŁŃÓŚŹŻ])"
 )
 
 
@@ -57,7 +58,13 @@ class TextOptimizationOptions:
         ))
 
 
-_LANGUAGE_NAMES = {"de": "German", "pl": "Polish", "en": "English"}
+_LANGUAGE_NAMES = {
+    "de": "German",
+    "pl": "Polish",
+    "en": "English",
+    "fr": "French",
+    "nl": "Dutch",
+}
 
 
 def build_system_prompt(options: TextOptimizationOptions, language: str | None = None) -> str:

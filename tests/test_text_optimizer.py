@@ -67,14 +67,14 @@ def test_optimizer_accepts_legacy_message_field_from_local_template() -> None:
     ) == "Bereinigter Text."
 
 
-def test_translation_target_is_added_to_the_local_prompt() -> None:
+@pytest.mark.parametrize(("target", "language_name"), [("pl", "Polish"), ("fr", "French"), ("nl", "Dutch")])
+def test_translation_target_is_added_to_the_local_prompt(target: str, language_name: str) -> None:
     prompt = build_system_prompt(
-        TextOptimizationOptions(formatting=True, cleanup=True, translation_target="pl"),
-        "de",
+        TextOptimizationOptions(formatting=True, cleanup=True, translation_target=target), "de"
     )
 
     assert "CRITICAL FINAL REQUIREMENT" in prompt
-    assert "into Polish" in prompt
+    assert f"into {language_name}" in prompt
     assert "Remove only unmistakable" in prompt
     assert prompt.endswith("translated output.")
 
@@ -97,6 +97,13 @@ def test_short_message_body_sentences_are_put_on_individual_lines() -> None:
         "ich hoffe es geht dir gut und du kommst gut nach Deutschland.\n"
         "Ich freue mich auf heute Abend.\n\n"
         "Bis später,\n\nDein Bro Falk."
+    )
+
+
+@pytest.mark.parametrize("greeting", ["Bonjour Marie", "Beste Jan"])
+def test_short_messages_in_new_dictation_languages_are_formatted(greeting: str) -> None:
+    assert _format_short_message(f"{greeting}, der erste Satz. Der zweite Satz.") == (
+        f"{greeting},\n\nder erste Satz.\nDer zweite Satz."
     )
 
 

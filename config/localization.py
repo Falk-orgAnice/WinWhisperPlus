@@ -94,6 +94,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "language_name_de": "Deutsch",
         "language_name_pl": "Polski",
         "language_name_en": "English",
+        "language_name_fr": "Französisch",
+        "language_name_nl": "Niederländisch",
     },
     "pl": {
         "app_name": "WinWhisperPlus",
@@ -178,6 +180,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "language_name_de": "Niemiecki",
         "language_name_pl": "Polski",
         "language_name_en": "Angielski",
+        "language_name_fr": "Francuski",
+        "language_name_nl": "Niderlandzki",
     },
     "en": {
         "app_name": "WinWhisperPlus",
@@ -262,6 +266,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "language_name_de": "German",
         "language_name_pl": "Polish",
         "language_name_en": "English",
+        "language_name_fr": "French",
+        "language_name_nl": "Dutch",
     },
 }
 

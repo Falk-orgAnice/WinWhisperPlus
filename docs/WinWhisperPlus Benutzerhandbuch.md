@@ -8,7 +8,7 @@ WinWhisperPlus läuft im Hintergrund und zeigt ein kleines Statusfenster sowie e
 
 - Sprache aufnehmen und in Text umwandeln.
 - Den erkannten Text automatisch per Zwischenablage einfügen.
-- Zwischen Deutsch, Polnisch und Englisch als Diktiersprache wechseln.
+- Zwischen Deutsch, Polnisch, Englisch, Französisch und Niederländisch als Diktiersprache wechseln.
 - Hotkeys, Mikrofon, Oberflächensprache und Whisper-Modelle konfigurieren.
 - Den finalen Text bei Bedarf vollständig lokal mit KI strukturieren und bereinigen.
 - Vorherige Transkriptionen aus dem Verlauf erneut einfügen.
@@ -48,7 +48,7 @@ Standardmäßig starten oder stoppen Sie eine Aufnahme mit `Ctrl+Alt+H`. Alterna
 
 Wenn `Text automatisch einfügen` aktiviert ist, setzt WinWhisperPlus den erkannten Text per `Ctrl+V` in das aktuell aktive Eingabefeld ein. Klicken Sie daher vor dem Stoppen oder vor dem finalen Einfügen in das Zielprogramm, zum Beispiel Editor, E-Mail, Browser oder Fachanwendung.
 
-Der Hotkey `Alt+Shift+S` schaltet die Diktiersprache in der Reihenfolge Deutsch, Polnisch, Englisch um. Nach dem Umschalten zeigt das Statusfenster kurz die neue Sprache an.
+Der Hotkey `Alt+Shift+S` schaltet die Diktiersprache in der Reihenfolge Deutsch, Polnisch, Englisch, Französisch, Niederländisch um. Nach dem Umschalten zeigt das Statusfenster kurz die neue Sprache an.
 
 ## Einstellungen
 
@@ -72,7 +72,7 @@ Die wichtigsten Optionen:
   - `Struktur und Zeichensetzung verbessern`: ergänzt Satzzeichen, sinnvolle Absätze und bei Bedarf einfache Listen.
   - `Eindeutige Wiederholungen und Füllwörter entfernen`: bereinigt nur klar überflüssige Teile.
   - `Lesbarkeit vorsichtig redigieren`: formuliert den Inhalt behutsam klarer und knapper.
-  - `In eine andere Diktiersprache übersetzen`: übersetzt den Endtext wahlweise nach Deutsch, Polnisch oder Englisch. Die Übersetzung bleibt lokal und wird übersprungen, wenn Quell- und Zielsprache gleich sind.
+  - `In eine andere Diktiersprache übersetzen`: übersetzt den Endtext wahlweise nach Deutsch, Polnisch, Englisch, Französisch oder Niederländisch. Die Übersetzung bleibt lokal und wird übersprungen, wenn Quell- und Zielsprache gleich sind.
 
 Die Ausgabe bleibt Klartext mit Absätzen und `-`-Aufzählungen. Namen, Zahlen, Fakten und unklare Textstellen dürfen nicht erfunden oder ergänzt werden. Wenn die lokale KI nicht verfügbar ist, versucht WinWhisperPlus die Verarbeitung einmal erneut und fügt danach den unveränderten Erkennungstext ein. Der eingefügte Endtext erscheint auch im Verlauf.
 

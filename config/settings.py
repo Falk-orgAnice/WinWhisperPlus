@@ -10,7 +10,7 @@ from pathlib import Path
 DEFAULT_SETTINGS = {
     "hotkey_record": "ctrl+alt+h",
     "hotkey_language": "alt+shift+s",
-    "language": "de",           # 'de', 'pl', 'en'
+    "language": "de",           # 'de', 'pl', 'en', 'fr', 'nl'
     "ui_language": "de",        # 'de', 'pl', 'en'
     "microphone_index": None,   # None = system default
     "microphone_name": None,    # Fallback when device indices change
@@ -41,9 +41,11 @@ LANGUAGES = {
     "de": "Deutsch",
     "pl": "Polski",
     "en": "English",
+    "fr": "Français",
+    "nl": "Nederlands",
 }
 
-LANGUAGE_CYCLE = ["de", "pl", "en"]
+LANGUAGE_CYCLE = ["de", "pl", "en", "fr", "nl"]
 UI_LANGUAGE_CYCLE = ["de", "pl", "en"]
 
 

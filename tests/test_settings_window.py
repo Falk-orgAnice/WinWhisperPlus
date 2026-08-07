@@ -60,3 +60,18 @@ def test_settings_window_persists_text_optimization(qapp, monkeypatch):
     assert settings.text_optimization_redact_enabled is True
     assert settings.text_translation_enabled is True
     assert settings.text_translation_target_language == "pl"
+
+
+def test_settings_window_offers_french_and_dutch_for_dictation_and_translation(qapp, monkeypatch):
+    monkeypatch.setattr("gui.settings_window.list_microphones", lambda: [])
+    monkeypatch.setattr("gui.settings_window.list_vulkan_devices", lambda: [])
+    window = SettingsWindow(Settings())
+
+    dictation_languages = [window._lang_combo.itemData(i) for i in range(window._lang_combo.count())]
+    translation_languages = [
+        window._text_translation_target_combo.itemData(i)
+        for i in range(window._text_translation_target_combo.count())
+    ]
+    assert dictation_languages == ["de", "pl", "en", "fr", "nl"]
+    assert translation_languages == dictation_languages
+    window.close()

@@ -68,6 +68,10 @@ def test_cycle_language():
     lang = s.cycle_language()
     assert lang == "en"
     lang = s.cycle_language()
+    assert lang == "fr"
+    lang = s.cycle_language()
+    assert lang == "nl"
+    lang = s.cycle_language()
     assert lang == "de"
 
 

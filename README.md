@@ -9,7 +9,7 @@ Whisper inference is provided by a bundled `whisper.cpp` runtime using Vulkan.
 The same release supports AMD, NVIDIA, and Intel GPUs, plus CPU-only inference.
 
 - 🎤 **Speech-to-Text** – Converts microphone input to text using OpenAI Whisper (local, no cloud).
-- 🌍 **Language support** – German (Deutsch), Polish (Polski), English.
+- 🌍 **Language support** – German (Deutsch), Polish (Polski), English, French (Français), Dutch (Nederlands).
 - 🗂️ **Localized interface** – UI available in German, Polish, and English independently from dictation language.
 - ⌨️ **System-wide hotkeys** – Configurable hotkeys to start/stop recording and cycle languages.
 - 📋 **Auto-insert** – Transcribed text is automatically pasted into the currently active input field.
@@ -123,14 +123,14 @@ The shown application version in this dialog is read from the bundled `VERSION`
 file. Release builds and the Inno Setup package use the same version value.
 
 - Change hotkeys by clicking the field and pressing the desired key combination.
-- Select the default language (Deutsch / Polski / English).
+- Select the default language (Deutsch / Polski / English / Français / Nederlands).
 - Select the interface language (Deutsch / Polski / English).
 - Choose a specific microphone from the dropdown.
 - Choose automatic Vulkan processing, a detected Vulkan GPU, or CPU-only processing.
 - Optionally keep active Whisper models loaded in memory for faster subsequent transcriptions.
 - Select the Whisper model size (`tiny` → `large`; larger = more accurate but slower).
 - Enable live transcription if you want stable partial text to be inserted during an active recording.
-- Enable **local text optimization** and combine its independent options: improve punctuation/paragraphs, remove clear repetitions and fillers, and cautiously redact for readability. Optionally translate the final result into German, Polish, or English. The model runs only after final transcription, so live text remains responsive.
+- Enable **local text optimization** and combine its independent options: improve punctuation/paragraphs, remove clear repetitions and fillers, and cautiously redact for readability. Optionally translate the final result into German, Polish, English, French, or Dutch. The model runs only after final transcription, so live text remains responsive.
 
 The processing choice is used for live and final transcription. When several
 Vulkan GPUs are available, each one is listed separately. Keeping models loaded
@@ -142,7 +142,7 @@ Text optimization is disabled by default. When enabled, the bundled local
 Qwen3-4B Q4_K_M model receives only the final recognized text and returns plain
 text with paragraphs and `-` lists; HTML and Markdown formatting are rejected.
 Formatting, cleanup, redaction, and translation target can be combined in the
-settings. Translation is available between the three dictation languages and
+settings. Translation is available between the five dictation languages and
 does not run when the target is the current dictation language. The model must
 preserve names, numbers, facts, commands, and ambiguous fragments.
 If the local model cannot respond within the configured time, WinWhisperPlus
