@@ -10,6 +10,7 @@ WinWhisperPlus läuft im Hintergrund und zeigt ein kleines Statusfenster sowie e
 - Den erkannten Text automatisch per Zwischenablage einfügen.
 - Zwischen Deutsch, Polnisch und Englisch als Diktiersprache wechseln.
 - Hotkeys, Mikrofon, Oberflächensprache und Whisper-Modelle konfigurieren.
+- Den finalen Text bei Bedarf vollständig lokal mit KI strukturieren und bereinigen.
 - Vorherige Transkriptionen aus dem Verlauf erneut einfügen.
 - Nutzungsstatistiken für erfolgreiche finale Transkriptionen anzeigen.
 
@@ -67,12 +68,21 @@ Die wichtigsten Optionen:
 - `Text automatisch einfügen`: Fügt erkannte Texte automatisch in das aktive Eingabefeld ein.
 - `Laufende Erkennung und laufendes Einfügen aktivieren`: Fügt stabile Zwischenergebnisse während der Aufnahme ein.
 - `Emoji-Modus`: Ergänzt bekannte Schlüsselwörter im erkannten Text mit passenden Emojis.
+- `Lokale Textoptimierung`: Ist standardmäßig ausgeschaltet. Wenn sie aktiviert ist, verarbeitet das mitgelieferte Qwen3-Modell nur die finale Transkription auf diesem Computer. Die Optionen lassen sich frei kombinieren:
+  - `Struktur und Zeichensetzung verbessern`: ergänzt Satzzeichen, sinnvolle Absätze und bei Bedarf einfache Listen.
+  - `Eindeutige Wiederholungen und Füllwörter entfernen`: bereinigt nur klar überflüssige Teile.
+  - `Lesbarkeit vorsichtig redigieren`: formuliert den Inhalt behutsam klarer und knapper.
+  - `In eine andere Diktiersprache übersetzen`: übersetzt den Endtext wahlweise nach Deutsch, Polnisch oder Englisch. Die Übersetzung bleibt lokal und wird übersprungen, wenn Quell- und Zielsprache gleich sind.
+
+Die Ausgabe bleibt Klartext mit Absätzen und `-`-Aufzählungen. Namen, Zahlen, Fakten und unklare Textstellen dürfen nicht erfunden oder ergänzt werden. Wenn die lokale KI nicht verfügbar ist, versucht WinWhisperPlus die Verarbeitung einmal erneut und fügt danach den unveränderten Erkennungstext ein. Der eingefügte Endtext erscheint auch im Verlauf.
 
 Speichern übernimmt die Einstellungen sofort und registriert die Hotkeys neu.
 
 ## Live-Erkennung
 
 Die Live-Erkennung ist optional. Wenn sie aktiviert ist, transkribiert WinWhisperPlus während der laufenden Aufnahme überlappende Audiostücke und fügt stabile Zwischenergebnisse ein. Beim Stoppen ersetzt die finale Transkription den Live-Textblock durch das endgültige Ergebnis.
+
+Ist die lokale Textoptimierung aktiv, läuft sie erst nach dieser finalen Transkription. Der vorläufige Live-Text wird anschließend durch den optimierten Endtext ersetzt.
 
 Für Live-Erkennung ohne schnelle GPU sind kleine Modelle sinnvoll. Beginnen Sie mit `tiny`; wenn die Qualität nicht reicht, testen Sie `base`.
 
@@ -114,6 +124,8 @@ Eine alte Konfiguration aus `%APPDATA%\MyWhisper\settings.json` kann beim Start 
 
 Beim ersten Einsatz eines Whisper-Modells kann ein Download notwendig sein. Warten Sie, bis die Initialisierung abgeschlossen ist. Wenn der Download blockiert wird, prüfen Sie Internetzugang, Proxy, Virenschutz und Firewall.
 
+Das Textoptimierungsmodell wird hingegen bereits mit dem Installer ausgeliefert und nicht zur Laufzeit heruntergeladen. Es benötigt mehrere GB Speicherplatz. Es läuft über eine ausschließlich lokale Verbindung zu `127.0.0.1`; der erkannte Text wird nicht an einen Cloud-Dienst übertragen.
+
 ### Das Mikrofon fehlt in der Liste
 
 Öffnen Sie die Einstellungen und klicken Sie auf die Aktualisieren-Schaltfläche neben der Mikrofonliste. Prüfen Sie außerdem, ob Windows das Mikrofon erkennt und ob die Datenschutzfreigabe für Mikrofonzugriff aktiv ist.
@@ -133,3 +145,7 @@ Klicken Sie vor dem Stoppen der Aufnahme in das Ziel-Eingabefeld. Wenn das Zielp
 ### Die Erkennung ist zu langsam
 
 Wählen Sie ein kleineres finales Modell, zum Beispiel `base` oder `small`. Für Live-Erkennung verwenden Sie `tiny` oder `base`. Eine Vulkan-fähige GPU kann die Verarbeitung deutlich beschleunigen, ist aber für die Grundfunktion nicht zwingend erforderlich.
+
+### Die Textoptimierung schlägt fehl
+
+Der Originaltext wird trotz eines Fehlers eingefügt. Prüfen Sie `%APPDATA%\WinWhisperPlus\winwhisperplus.log`. Häufige Ursachen sind zu wenig freier RAM/Grafikspeicher, ein beschädigtes Release-Paket oder ein nicht verfügbarer Vulkan-Treiber. Die mitgelieferte Modell-Datei wird vor dem Start per SHA-256 geprüft.

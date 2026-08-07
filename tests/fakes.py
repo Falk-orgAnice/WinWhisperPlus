@@ -153,3 +153,26 @@ class FakeTextSink:
     def final_replaced_text(self) -> str | None:
         """The *new* text from the very last replace call, or None."""
         return self.replaces[-1][1] if self.replaces else None
+
+
+class FakeTextOptimizer:
+    """Deterministic local-optimizer stand-in for app integration tests."""
+
+    def __init__(self, return_text: str | None = None, raise_exc: Exception | None = None) -> None:
+        self.return_text = return_text
+        self.raise_exc = raise_exc
+        self.calls: list[tuple[str, str, str | None]] = []
+        self.compute_device = "auto"
+        self.closed = False
+
+    def optimize(self, text: str, *, options, language: str | None = None) -> str:
+        self.calls.append((text, options, language))
+        if self.raise_exc is not None:
+            raise self.raise_exc
+        return self.return_text if self.return_text is not None else text
+
+    def set_compute_device(self, compute_device: str) -> None:
+        self.compute_device = compute_device
+
+    def close(self) -> None:
+        self.closed = True

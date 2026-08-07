@@ -23,10 +23,19 @@ $installerBaseExePath = Join-Path $distDir "WinWhisperPlus-Setup.exe"
 $versionFilePath = Join-Path $repoRoot "VERSION"
 $pythonVersionArgs = @("-3.14", "-3.13", "-3.12", "-3.11", "-3.10")
 $whisperCppVersion = "v1.9.1"
+$llamaCppVersion = "b9999"
 $whisperCppWorkDir = Join-Path $env:TEMP "wwp-wcpp"
 $whisperCppSourceDir = Join-Path $whisperCppWorkDir "src"
 $whisperCppBuildDir = Join-Path $whisperCppWorkDir "build"
 $whisperCppRuntimeDir = Join-Path $repoRoot "build\whispercpp-runtime"
+$llamaCppWorkDir = Join-Path $env:TEMP "wwp-llama"
+$llamaCppSourceDir = Join-Path $llamaCppWorkDir "src"
+$llamaCppBuildDir = Join-Path $llamaCppWorkDir "build"
+$textOptimizerRuntimeDir = Join-Path $repoRoot "build\textoptimizer-runtime"
+$textModelDir = Join-Path $textOptimizerRuntimeDir "models"
+$textModelFileName = "Qwen_Qwen3-4B-Q4_K_M.gguf"
+$textModelPath = Join-Path $textModelDir $textModelFileName
+$textModelUrl = "https://huggingface.co/bartowski/Qwen_Qwen3-4B-GGUF/resolve/main/$textModelFileName"
 
 function Invoke-Step {
     param(
@@ -176,6 +185,63 @@ function Build-WhisperCppVulkanRuntime {
     $env:WINWHISPERPLUS_WHISPERCPP_DIR = $whisperCppRuntimeDir
 }
 
+function Build-TextOptimizerRuntime {
+    $cmakeExe = Resolve-CMake
+    $vulkanSdk = Resolve-VulkanSdk
+    $env:VULKAN_SDK = $vulkanSdk
+    $gitExe = Get-Command git.exe -ErrorAction SilentlyContinue
+    if (-not $gitExe) {
+        throw "Git wurde nicht gefunden. Es wird benoetigt, um llama.cpp $llamaCppVersion abzurufen."
+    }
+
+    if (Test-Path $llamaCppWorkDir) {
+        Remove-Item -Recurse -Force $llamaCppWorkDir
+    }
+    New-Item -ItemType Directory -Force -Path $llamaCppWorkDir | Out-Null
+    Invoke-NativeCommand {
+        & $gitExe.Source clone --depth 1 --branch $llamaCppVersion `
+            https://github.com/ggml-org/llama.cpp.git $llamaCppSourceDir
+    } "llama.cpp konnte nicht abgerufen werden."
+    Invoke-NativeCommand {
+        & $cmakeExe -S $llamaCppSourceDir -B $llamaCppBuildDir `
+            -DGGML_VULKAN=1 -DLLAMA_BUILD_TESTS=OFF `
+            "-DVulkan_ROOT=$vulkanSdk"
+    } "llama.cpp konnte nicht fuer Vulkan konfiguriert werden."
+    Invoke-NativeCommand {
+        & $cmakeExe --build $llamaCppBuildDir --config Release --target llama-server
+    } "llama.cpp konnte nicht gebaut werden."
+
+    $server = Get-ChildItem -Path $llamaCppBuildDir -Recurse -Filter "llama-server.exe" |
+        Select-Object -First 1
+    if (-not $server) {
+        throw "Der llama.cpp-Build hat keine llama-server.exe erzeugt."
+    }
+    New-Item -ItemType Directory -Force -Path $textOptimizerRuntimeDir | Out-Null
+    Copy-Item -Path (Join-Path $server.DirectoryName "*") -Destination $textOptimizerRuntimeDir -Force
+    Copy-Item -Path (Join-Path $llamaCppSourceDir "LICENSE") `
+        -Destination (Join-Path $textOptimizerRuntimeDir "LICENSE-llama.cpp") -Force
+
+    New-Item -ItemType Directory -Force -Path $textModelDir | Out-Null
+    Write-Host "Lade Qwen3-4B Q4_K_M Textmodell (einmalig fuer das Release)..."
+    $curlExe = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if (-not $curlExe) {
+        throw "curl.exe wurde nicht gefunden. Es wird fuer den robusten Modell-Download benoetigt."
+    }
+    Invoke-NativeCommand {
+        & $curlExe.Source --fail --location --retry 3 --retry-delay 2 `
+            --output $textModelPath $textModelUrl
+    } "Das Qwen3-Modell konnte nicht heruntergeladen werden."
+    if ((Get-Item $textModelPath).Length -lt 1GB) {
+        throw "Das heruntergeladene Qwen3-Modell ist unerwartet klein und wird nicht paketiert."
+    }
+    $modelHash = (Get-FileHash -Path $textModelPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Set-Content -Path (Join-Path $textModelDir "text-model.sha256") `
+        -Value "$modelHash  $textModelFileName" -NoNewline -Encoding ascii
+    Invoke-WebRequest -Uri "https://www.apache.org/licenses/LICENSE-2.0.txt" `
+        -OutFile (Join-Path $textOptimizerRuntimeDir "LICENSE-Qwen3-Apache-2.0.txt")
+    $env:WINWHISPERPLUS_TEXTOPTIMIZER_DIR = $textOptimizerRuntimeDir
+}
+
 function Get-ReleaseVersion {
     if ($AppVersion) {
         if ($AppVersion -notmatch '^\d+\.\d+\.\d+$') {
@@ -299,6 +365,10 @@ Invoke-Step "Bereinige alte Build-Ausgaben" {
 
 Invoke-Step "Baue whisper.cpp mit Vulkan" {
     Build-WhisperCppVulkanRuntime
+}
+
+Invoke-Step "Baue lokalen Textoptimierer mit Vulkan" {
+    Build-TextOptimizerRuntime
 }
 
 Invoke-Step "Baue WinWhisperPlus.exe" {

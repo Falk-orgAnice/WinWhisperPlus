@@ -1,0 +1,22 @@
+WinWhisperPlus local text optimization notices
+==============================================
+
+This release bundles the following components for optional local text
+optimization. They are used only on the user's computer and receive text only
+through the loopback interface (127.0.0.1).
+
+llama.cpp
+---------
+Project: https://github.com/ggml-org/llama.cpp
+License: MIT License
+Source revision: b9999 (recorded by scripts/build-release.ps1)
+
+Qwen3-4B / Qwen_Qwen3-4B-Q4_K_M.gguf
+--------------------------------------
+Original model: https://huggingface.co/Qwen/Qwen3-4B
+GGUF quantization: https://huggingface.co/bartowski/Qwen_Qwen3-4B-GGUF
+License: Apache License 2.0
+
+The release build records the SHA-256 hash of the exact GGUF file in
+textoptimizer/models/text-model.sha256. WinWhisperPlus verifies this hash
+before it starts the local model server.

@@ -9,6 +9,7 @@ block_cipher = None
 datas = [
     ("assets/icon.svg", "assets"),
     ("assets/Microphone.ico", "assets"),
+    ("assets/licenses", "licenses"),
     ("VERSION", "."),
 ]
 
@@ -18,6 +19,19 @@ if not (whispercpp_dir / "whisper-cli.exe").is_file():
         "whisper.cpp runtime missing. Run scripts/build-release.ps1, which builds it before PyInstaller."
     )
 datas.append((str(whispercpp_dir), "whispercpp"))
+
+textoptimizer_dir = Path(os.environ.get("WINWHISPERPLUS_TEXTOPTIMIZER_DIR", "build/textoptimizer-runtime"))
+if not (textoptimizer_dir / "llama-server.exe").is_file():
+    raise SystemExit(
+        "llama.cpp text optimizer runtime missing. Run scripts/build-release.ps1, which builds it before PyInstaller."
+    )
+if not (textoptimizer_dir / "models" / "Qwen_Qwen3-4B-Q4_K_M.gguf").is_file():
+    raise SystemExit(
+        "Qwen3 text optimizer model missing. Run scripts/build-release.ps1 to download the bundled model."
+    )
+if not (textoptimizer_dir / "models" / "text-model.sha256").is_file():
+    raise SystemExit("Qwen3 text optimizer checksum missing. Run scripts/build-release.ps1.")
+datas.append((str(textoptimizer_dir), "textoptimizer"))
 
 hiddenimports = [
     "PyQt6.QtSvg",

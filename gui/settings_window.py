@@ -173,6 +173,34 @@ class SettingsWindow(QDialog):
         self._emoji_mode_cb = QCheckBox()
         root.addWidget(self._emoji_mode_cb)
 
+        # --- Local text optimization ---------------------------------
+        self._text_optimization_group = QGroupBox()
+        text_optimization_layout = QVBoxLayout(self._text_optimization_group)
+        self._text_optimization_cb = QCheckBox()
+        self._text_optimization_cb.toggled.connect(self._update_text_optimization_controls)
+        text_optimization_layout.addWidget(self._text_optimization_cb)
+        self._text_formatting_cb = QCheckBox()
+        text_optimization_layout.addWidget(self._text_formatting_cb)
+        self._text_cleanup_cb = QCheckBox()
+        text_optimization_layout.addWidget(self._text_cleanup_cb)
+        self._text_redact_cb = QCheckBox()
+        text_optimization_layout.addWidget(self._text_redact_cb)
+        self._text_translation_cb = QCheckBox()
+        self._text_translation_cb.toggled.connect(self._update_text_optimization_controls)
+        text_optimization_layout.addWidget(self._text_translation_cb)
+        translation_row = QHBoxLayout()
+        self._text_translation_target_label = QLabel()
+        translation_row.addWidget(self._text_translation_target_label)
+        self._text_translation_target_combo = QComboBox()
+        for code in LANGUAGE_CYCLE:
+            self._text_translation_target_combo.addItem("", code)
+        translation_row.addWidget(self._text_translation_target_combo)
+        text_optimization_layout.addLayout(translation_row)
+        self._text_optimization_note = QLabel()
+        self._text_optimization_note.setWordWrap(True)
+        text_optimization_layout.addWidget(self._text_optimization_note)
+        root.addWidget(self._text_optimization_group)
+
         # --- Buttons ---------------------------------------------------
         btn_layout = QHBoxLayout()
         self._version_label = QLabel()
@@ -217,6 +245,20 @@ class SettingsWindow(QDialog):
         self._live_transcription_cb.setToolTip(tr("live_transcription_tooltip", self._settings))
         self._emoji_mode_cb.setText(tr("emoji_mode", self._settings))
         self._emoji_mode_cb.setToolTip(tr("emoji_mode_tooltip", self._settings))
+        self._text_optimization_group.setTitle(tr("group_text_optimization", self._settings))
+        self._text_optimization_cb.setText(tr("text_optimization_enabled", self._settings))
+        self._text_optimization_cb.setToolTip(tr("text_optimization_enabled_tooltip", self._settings))
+        self._text_formatting_cb.setText(tr("text_optimization_formatting", self._settings))
+        self._text_cleanup_cb.setText(tr("text_optimization_cleanup", self._settings))
+        self._text_redact_cb.setText(tr("text_optimization_redact", self._settings))
+        self._text_translation_cb.setText(tr("text_translation_enabled", self._settings))
+        self._text_translation_target_label.setText(tr("text_translation_target", self._settings))
+        self._text_optimization_note.setText(tr("text_optimization_note", self._settings))
+        for i in range(self._text_translation_target_combo.count()):
+            language = self._text_translation_target_combo.itemData(i)
+            self._text_translation_target_combo.setItemText(
+                i, localized_spoken_language_name(language, self._settings)
+            )
         self._version_label.setText(tr("version_label", self._settings, version=app_version()))
         self._save_btn.setText(tr("save", self._settings))
         self._cancel_btn.setText(tr("cancel", self._settings))
@@ -287,7 +329,28 @@ class SettingsWindow(QDialog):
         self._keep_model_loaded_cb.setChecked(self._settings.keep_model_loaded)
         self._live_transcription_cb.setChecked(self._settings.live_transcription_enabled)
         self._emoji_mode_cb.setChecked(self._settings.emoji_mode_enabled)
+        self._text_optimization_cb.setChecked(self._settings.text_optimization_enabled)
+        self._text_formatting_cb.setChecked(self._settings.text_optimization_formatting_enabled)
+        self._text_cleanup_cb.setChecked(self._settings.text_optimization_cleanup_enabled)
+        self._text_redact_cb.setChecked(self._settings.text_optimization_redact_enabled)
+        self._text_translation_cb.setChecked(self._settings.text_translation_enabled)
+        for i in range(self._text_translation_target_combo.count()):
+            if self._text_translation_target_combo.itemData(i) == self._settings.text_translation_target_language:
+                self._text_translation_target_combo.setCurrentIndex(i)
+                break
+        self._update_text_optimization_controls(self._text_optimization_cb.isChecked())
         self._refresh_mics()
+
+    def _update_text_optimization_controls(self, _checked: bool) -> None:
+        enabled = self._text_optimization_cb.isChecked()
+        self._text_formatting_cb.setEnabled(enabled)
+        self._text_cleanup_cb.setEnabled(enabled)
+        self._text_redact_cb.setEnabled(enabled)
+        self._text_translation_cb.setEnabled(enabled)
+        translation_enabled = enabled and self._text_translation_cb.isChecked()
+        self._text_translation_target_label.setEnabled(translation_enabled)
+        self._text_translation_target_combo.setEnabled(translation_enabled)
+        self._text_optimization_note.setEnabled(enabled)
 
     def _refresh_compute_devices(self) -> None:
         """Populate CPU, automatic, and all Vulkan devices found at runtime."""
@@ -332,6 +395,12 @@ class SettingsWindow(QDialog):
         self._settings.auto_insert = self._auto_insert_cb.isChecked()
         self._settings.live_transcription_enabled = self._live_transcription_cb.isChecked()
         self._settings.emoji_mode_enabled = self._emoji_mode_cb.isChecked()
+        self._settings.text_optimization_enabled = self._text_optimization_cb.isChecked()
+        self._settings.text_optimization_formatting_enabled = self._text_formatting_cb.isChecked()
+        self._settings.text_optimization_cleanup_enabled = self._text_cleanup_cb.isChecked()
+        self._settings.text_optimization_redact_enabled = self._text_redact_cb.isChecked()
+        self._settings.text_translation_enabled = self._text_translation_cb.isChecked()
+        self._settings.text_translation_target_language = self._text_translation_target_combo.currentData()
         self._settings.save()
         self.accept()
         QTimer.singleShot(0, lambda: self.settings_saved.emit(self._settings))

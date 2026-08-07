@@ -32,6 +32,7 @@ from core.emoji_enricher import enrich_with_emojis
 from core.recorder import Recorder, SAMPLE_RATE, list_microphones
 from core.statistics import StatisticsStore
 from core.text_inserter import insert_text, press_enter, replace_text
+from core.text_optimizer import TextOptimizationOptions, TextOptimizer
 from core.transcriber import Transcriber
 from gui.history_window import HistoryWindow
 from gui.statistics_window import StatisticsWindow
@@ -75,6 +76,7 @@ class Application(QObject):
     _status_changed = pyqtSignal(str)
     _transcription_done = pyqtSignal(str)
     _transcription_failed = pyqtSignal(str)
+    _text_optimization_done = pyqtSignal(str, bool, bool)
     _partial_transcription_done = pyqtSignal(str)
     _model_preload_started = pyqtSignal(str)
     _model_preload_finished = pyqtSignal(str, bool)
@@ -91,6 +93,7 @@ class Application(QObject):
         recorder=None,
         transcriber_live=None,
         transcriber_final=None,
+        text_optimizer=None,
         text_sink=None,
         status_window=None,
         settings=None,
@@ -123,6 +126,9 @@ class Application(QObject):
             compute_device=self._settings.compute_device,
             keep_model_loaded=self._settings.keep_model_loaded,
         )
+        self._text_optimizer = text_optimizer or TextOptimizer(
+            compute_device=self._settings.compute_device,
+        )
         self._injected_recorder = recorder   # kept to skip rebuild in test mode
         self._hotkey_mgr = HotkeyManager()
         self._history: list[str] = []  # Session history of recognized texts (max 50)
@@ -136,6 +142,7 @@ class Application(QObject):
         self._rendered_live_text = ""
         self._last_live_emit_at = 0.0
         self._active_preloads = 0
+        self._active_text_optimizations = 0
         self._recording_started_at: datetime | None = None
         self._last_recording_duration_seconds = 0.0
         self._pending_stats_session = False
@@ -198,6 +205,7 @@ class Application(QObject):
             self._recorder.stop()
         self._transcriber_live.close()
         self._transcriber_final.close()
+        self._text_optimizer.close()
 
     # ------------------------------------------------------------------
     # Signal wiring
@@ -227,6 +235,7 @@ class Application(QObject):
         self._status_changed.connect(self._on_status_changed)
         self._transcription_done.connect(self._on_transcription_done)
         self._transcription_failed.connect(self._on_transcription_failed)
+        self._text_optimization_done.connect(self._on_text_optimization_done)
         self._partial_transcription_done.connect(self._on_partial_transcription_done)
         self._model_preload_started.connect(self._on_model_preload_started)
         self._model_preload_finished.connect(self._on_model_preload_finished)
@@ -256,11 +265,18 @@ class Application(QObject):
         self._transcriber_final.set_compute_device(settings.compute_device)
         self._transcriber_live.set_keep_model_loaded(settings.keep_model_loaded)
         self._transcriber_final.set_keep_model_loaded(settings.keep_model_loaded)
+        self._text_optimizer.set_compute_device(settings.compute_device)
         LOGGER.info(
-            "Settings angewendet | live_enabled=%s live_model=%s final_model=%s compute_device=%s keep_model_loaded=%s",
+            "Settings angewendet | live_enabled=%s live_model=%s final_model=%s text_optimization=%s formatting=%s cleanup=%s redact=%s translation=%s target=%s compute_device=%s keep_model_loaded=%s",
             settings.live_transcription_enabled,
             settings.live_whisper_model,
             settings.final_whisper_model,
+            settings.text_optimization_enabled,
+            settings.text_optimization_formatting_enabled,
+            settings.text_optimization_cleanup_enabled,
+            settings.text_optimization_redact_enabled,
+            settings.text_translation_enabled,
+            settings.text_translation_target_language,
             settings.compute_device,
             settings.keep_model_loaded,
         )
@@ -587,15 +603,89 @@ class Application(QObject):
         self._pending_stats_session = False
         self._recording_started_at = None
         self._last_recording_duration_seconds = 0.0
-        # Save to history
-        if text and text.strip():
-            self._history.append(text)
+        final_text, should_press_enter = extract_enter_command(text)
+        options = self._build_text_optimization_options()
+        if self._settings.text_optimization_enabled and final_text.strip() and options.has_work(self._settings.language):
+            self._active_text_optimizations += 1
+            self._status_changed.emit("processing")
+            threading.Thread(
+                target=self._optimize_and_emit,
+                args=(
+                    final_text,
+                    should_press_enter,
+                    options,
+                    self._settings.language,
+                ),
+                daemon=True,
+            ).start()
+            return
+        self._finalize_text(final_text, should_press_enter)
+
+    def _optimize_and_emit(
+        self,
+        text: str,
+        should_press_enter: bool,
+        options: TextOptimizationOptions,
+        language: str,
+    ) -> None:
+        """Run the local model off the Qt thread and retain a safe fallback."""
+        try:
+            optimized_text = self._text_optimizer.optimize(
+                text,
+                options=options,
+                language=language,
+            )
+            used_fallback = False
+            LOGGER.info(
+                "Textoptimierung fertig | formatting=%s cleanup=%s redact=%s translation_target=%s input_chars=%s output_chars=%s",
+                options.formatting,
+                options.cleanup,
+                options.redact,
+                options.translation_target,
+                len(text),
+                len(optimized_text),
+            )
+        except Exception:  # noqa: BLE001 - the raw transcription is the documented fallback
+            LOGGER.exception("Textoptimierung fehlgeschlagen; Originaltext wird verwendet")
+            optimized_text = text
+            used_fallback = True
+        self._text_optimization_done.emit(optimized_text, should_press_enter, used_fallback)
+
+    def _build_text_optimization_options(self) -> TextOptimizationOptions:
+        """Snapshot independent options before starting the worker thread."""
+        target = (
+            self._settings.text_translation_target_language
+            if self._settings.text_translation_enabled
+            else None
+        )
+        return TextOptimizationOptions(
+            formatting=self._settings.text_optimization_formatting_enabled,
+            cleanup=self._settings.text_optimization_cleanup_enabled,
+            redact=self._settings.text_optimization_redact_enabled,
+            translation_target=target,
+        )
+
+    @pyqtSlot(str, bool, bool)
+    def _on_text_optimization_done(
+        self,
+        text: str,
+        should_press_enter: bool,
+        used_fallback: bool,
+    ) -> None:
+        self._active_text_optimizations = max(0, self._active_text_optimizations - 1)
+        if used_fallback and not self._test_mode:
+            self._status_window.show_message(tr("text_optimization_failed", self._settings))
+        self._finalize_text(text, should_press_enter)
+
+    def _finalize_text(self, final_text: str, should_press_enter: bool) -> None:
+        """Apply local enrichments, save the actual result, and insert it."""
+        if self._settings.emoji_mode_enabled:
+            final_text = enrich_with_emojis(final_text, language=self._settings.language)
+        if final_text and final_text.strip():
+            self._history.append(final_text)
             # Keep only last 50 items
             if len(self._history) > self._max_history:
                 self._history = self._history[-self._max_history:]
-        final_text, should_press_enter = extract_enter_command(text)
-        if self._settings.emoji_mode_enabled:
-            final_text = enrich_with_emojis(final_text, language=self._settings.language)
         if self._settings.auto_insert:
             if self._settings.live_transcription_enabled:
                 self._queue_replace(self._rendered_live_text, final_text)
@@ -762,6 +852,7 @@ class Application(QObject):
         return (
             not self._recorder.is_recording
             and self._active_preloads == 0
+            and self._active_text_optimizations == 0
             and self._insert_queue.unfinished_tasks == 0
             and self._status in ("ready", "inserted", "")
         )

@@ -29,6 +29,12 @@ DEFAULT_SETTINGS = {
     "window_position_x": None,  # x coordinate of status window
     "window_position_y": None,  # y coordinate of status window
     "emoji_mode_enabled": False,
+    "text_optimization_enabled": False,
+    "text_optimization_formatting_enabled": True,
+    "text_optimization_cleanup_enabled": False,
+    "text_optimization_redact_enabled": False,
+    "text_translation_enabled": False,
+    "text_translation_target_language": "en",
 }
 
 LANGUAGES = {
@@ -75,6 +81,20 @@ class Settings:
                     stored = json.load(fh)
                 if "final_whisper_model" not in stored and "whisper_model" in stored:
                     stored["final_whisper_model"] = stored["whisper_model"]
+                # Migrate the former exclusive optimization profile to the
+                # independently combinable options introduced in 1.1.4.
+                if "text_optimization_profile" in stored and not any(
+                    key in stored
+                    for key in (
+                        "text_optimization_formatting_enabled",
+                        "text_optimization_cleanup_enabled",
+                        "text_optimization_redact_enabled",
+                    )
+                ):
+                    profile = stored["text_optimization_profile"]
+                    stored["text_optimization_formatting_enabled"] = True
+                    stored["text_optimization_cleanup_enabled"] = profile in {"cleanup", "redact"}
+                    stored["text_optimization_redact_enabled"] = profile == "redact"
                 # Merge with defaults so new keys are always present
                 self._data.update({k: v for k, v in stored.items() if k in DEFAULT_SETTINGS})
             except (json.JSONDecodeError, OSError):
@@ -240,6 +260,55 @@ class Settings:
     @emoji_mode_enabled.setter
     def emoji_mode_enabled(self, value: bool) -> None:
         self._data["emoji_mode_enabled"] = bool(value)
+
+    @property
+    def text_optimization_enabled(self) -> bool:
+        return bool(self._data["text_optimization_enabled"])
+
+    @text_optimization_enabled.setter
+    def text_optimization_enabled(self, value: bool) -> None:
+        self._data["text_optimization_enabled"] = bool(value)
+
+    @property
+    def text_optimization_formatting_enabled(self) -> bool:
+        return bool(self._data["text_optimization_formatting_enabled"])
+
+    @text_optimization_formatting_enabled.setter
+    def text_optimization_formatting_enabled(self, value: bool) -> None:
+        self._data["text_optimization_formatting_enabled"] = bool(value)
+
+    @property
+    def text_optimization_cleanup_enabled(self) -> bool:
+        return bool(self._data["text_optimization_cleanup_enabled"])
+
+    @text_optimization_cleanup_enabled.setter
+    def text_optimization_cleanup_enabled(self, value: bool) -> None:
+        self._data["text_optimization_cleanup_enabled"] = bool(value)
+
+    @property
+    def text_optimization_redact_enabled(self) -> bool:
+        return bool(self._data["text_optimization_redact_enabled"])
+
+    @text_optimization_redact_enabled.setter
+    def text_optimization_redact_enabled(self, value: bool) -> None:
+        self._data["text_optimization_redact_enabled"] = bool(value)
+
+    @property
+    def text_translation_enabled(self) -> bool:
+        return bool(self._data["text_translation_enabled"])
+
+    @text_translation_enabled.setter
+    def text_translation_enabled(self, value: bool) -> None:
+        self._data["text_translation_enabled"] = bool(value)
+
+    @property
+    def text_translation_target_language(self) -> str:
+        return self._data["text_translation_target_language"]
+
+    @text_translation_target_language.setter
+    def text_translation_target_language(self, value: str) -> None:
+        if value in LANGUAGE_CYCLE:
+            self._data["text_translation_target_language"] = value
 
     def cycle_language(self) -> str:
         """Switch to the next language in the cycle and return its code."""

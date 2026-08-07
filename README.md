@@ -14,6 +14,7 @@ The same release supports AMD, NVIDIA, and Intel GPUs, plus CPU-only inference.
 - ⌨️ **System-wide hotkeys** – Configurable hotkeys to start/stop recording and cycle languages.
 - 📋 **Auto-insert** – Transcribed text is automatically pasted into the currently active input field.
 - ⚡ **Live mode** – Optional near real-time transcription inserts stable partial text while you are still speaking.
+- ✨ **Local text optimization** – Optionally structures final dictation locally with Qwen3: paragraphs, punctuation, lists, and configurable conservative cleanup.
 - 📊 **Usage statistics** – Tracks successful sessions and shows count/total/average recording duration per day, week, and month.
 - 🎛️ **Microphone selection** – Choose from all connected input devices.
 - 🔔 **System tray** – Runs silently in the background with a tray icon and context menu.
@@ -57,6 +58,10 @@ not need Python, the Vulkan SDK, or any other build tools.
 End users do **not** need to install Python when you distribute the PyInstaller
 release package. They only need to unzip the package and start
 `WinWhisperPlus.exe`.
+
+The release also contains the optional Qwen3-4B text model (several GB) and a
+local `llama.cpp` runtime. It is checked by SHA-256 before use and is contacted
+only through `127.0.0.1`; recognition text is never sent to a cloud service.
 
 Build the release package on a Windows development machine with Python 3.10 to
 3.14 64-bit and Inno Setup 7 or 6 installed:
@@ -125,10 +130,24 @@ file. Release builds and the Inno Setup package use the same version value.
 - Optionally keep active Whisper models loaded in memory for faster subsequent transcriptions.
 - Select the Whisper model size (`tiny` → `large`; larger = more accurate but slower).
 - Enable live transcription if you want stable partial text to be inserted during an active recording.
+- Enable **local text optimization** and combine its independent options: improve punctuation/paragraphs, remove clear repetitions and fillers, and cautiously redact for readability. Optionally translate the final result into German, Polish, or English. The model runs only after final transcription, so live text remains responsive.
 
 The processing choice is used for live and final transcription. When several
 Vulkan GPUs are available, each one is listed separately. Keeping models loaded
 reduces latency, but keeps RAM or GPU memory in use while the application runs.
+
+### Local text optimization
+
+Text optimization is disabled by default. When enabled, the bundled local
+Qwen3-4B Q4_K_M model receives only the final recognized text and returns plain
+text with paragraphs and `-` lists; HTML and Markdown formatting are rejected.
+Formatting, cleanup, redaction, and translation target can be combined in the
+settings. Translation is available between the three dictation languages and
+does not run when the target is the current dictation language. The model must
+preserve names, numbers, facts, commands, and ambiguous fragments.
+If the local model cannot respond within the configured time, WinWhisperPlus
+retries once and then inserts the unmodified Whisper text with a visible notice.
+The final, inserted text is what appears in the session history.
 
 ### Microphone troubleshooting
 

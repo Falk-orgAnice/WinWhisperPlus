@@ -19,7 +19,7 @@ import numpy as np
 from PyQt6.QtWidgets import QApplication
 
 from app import Application
-from tests.fakes import FakeRecorder, FakeTranscriber, FakeTextSink
+from tests.fakes import FakeRecorder, FakeTextOptimizer, FakeTranscriber, FakeTextSink
 
 
 # ---------------------------------------------------------------------------
@@ -43,6 +43,7 @@ def _make_app(
     transcribe_text: str = "hello world",
     transcriber_raise: Exception | None = None,
     transcriber_delay: float = 0.0,
+    text_optimizer: FakeTextOptimizer | None = None,
 ) -> tuple[Application, FakeRecorder, FakeTextSink]:
     """Build an Application in test mode with fake dependencies."""
     fake_final = FakeTranscriber(
@@ -61,10 +62,19 @@ def _make_app(
         recorder=fake_rec,
         transcriber_live=fake_live,
         transcriber_final=fake_final,
+        text_optimizer=text_optimizer,
         text_sink=fake_sink,
     )
-    # Override live setting directly to avoid file I/O
+    # Override persisted user settings so smoke tests never start the real
+    # bundled optimizer. Individual tests enable it explicitly with a fake.
     app._settings.live_transcription_enabled = live
+    app._settings.text_optimization_enabled = False
+    app._settings.text_optimization_formatting_enabled = True
+    app._settings.text_optimization_cleanup_enabled = False
+    app._settings.text_optimization_redact_enabled = False
+    app._settings.text_translation_enabled = False
+    app._settings.text_translation_target_language = "en"
+    app._settings.emoji_mode_enabled = False
     # Re-wire on_chunk on the fake recorder to match the live setting
     app._recorder = app._build_recorder(app._settings)
 
@@ -172,6 +182,66 @@ class TestFinalTranscription:
         assert len(day_rows) == 1
         assert day_rows[0]["count"] == 1
         assert day_rows[0]["total_seconds"] > 0.0
+
+    def test_text_optimization_inserts_and_saves_optimized_text(self, qapp):
+        optimizer = FakeTextOptimizer(return_text="Strukturiert.\n\n- Punkt")
+        app, _, sink = _make_app(
+            qapp,
+            transcribe_text="strukturiert punkt",
+            text_optimizer=optimizer,
+        )
+        app._settings.text_optimization_enabled = True
+        app._settings.text_optimization_cleanup_enabled = True
+        app.start()
+
+        app._toggle_recording()
+        app._toggle_recording()
+        assert app.wait_for_idle(timeout_sec=8)
+        _, options, language = optimizer.calls[0]
+        assert options.formatting is True
+        assert options.cleanup is True
+        assert options.redact is False
+        assert options.translation_target is None
+        assert language == "de"
+        assert app.get_history() == ["Strukturiert.\n\n- Punkt"]
+        assert "Strukturiert." in sink.all_text
+
+    def test_text_optimization_failure_retries_then_inserts_raw_text(self, qapp):
+        optimizer = FakeTextOptimizer(raise_exc=RuntimeError("local model failed"))
+        app, _, sink = _make_app(
+            qapp,
+            transcribe_text="roher text",
+            text_optimizer=optimizer,
+        )
+        app._settings.text_optimization_enabled = True
+        app.start()
+
+        app._toggle_recording()
+        app._toggle_recording()
+        assert app.wait_for_idle(timeout_sec=8)
+        assert app.get_history() == ["roher text"]
+        assert "roher text" in sink.all_text
+
+    def test_combined_text_options_include_translation_target(self, qapp):
+        optimizer = FakeTextOptimizer(return_text="Translated text")
+        app, _, _ = _make_app(qapp, transcribe_text="Original", text_optimizer=optimizer)
+        app._settings.text_optimization_enabled = True
+        app._settings.text_optimization_cleanup_enabled = True
+        app._settings.text_optimization_redact_enabled = True
+        app._settings.text_translation_enabled = True
+        app._settings.text_translation_target_language = "en"
+        app.start()
+
+        app._toggle_recording()
+        app._toggle_recording()
+        assert app.wait_for_idle(timeout_sec=8)
+
+        _, options, language = optimizer.calls[0]
+        assert language == "de"
+        assert options.formatting is True
+        assert options.cleanup is True
+        assert options.redact is True
+        assert options.translation_target == "en"
 
 # ---------------------------------------------------------------------------
 # Test: Stop does not hang
