@@ -73,6 +73,17 @@ def _make_app(
     return app, fake_rec, fake_sink
 
 
+def test_open_log_uses_the_per_user_log_path(qapp, monkeypatch, tmp_path):
+    app, _, _ = _make_app(qapp)
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    opened_paths: list[str] = []
+    monkeypatch.setattr("app.os.startfile", opened_paths.append)
+
+    app._open_log()
+
+    assert opened_paths == [str(tmp_path / "WinWhisperPlus" / "winwhisperplus.log")]
+
+
 # ---------------------------------------------------------------------------
 # Test: App starts and reaches "ready"
 # ---------------------------------------------------------------------------

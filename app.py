@@ -41,20 +41,25 @@ from gui.tray_icon import TrayIcon
 from gui.status_window import StatusWindow
 
 
+def _log_file_path() -> Path:
+    """Return the per-user log path shared by the logger and menu action."""
+    app_data = os.environ.get("APPDATA") or str(Path.home())
+    return Path(app_data) / "WinWhisperPlus" / "winwhisperplus.log"
+
+
 def _build_logger() -> logging.Logger:
     logger = logging.getLogger("winwhisperplus")
     if logger.handlers:
         return logger
 
-    app_data = os.environ.get("APPDATA") or str(Path.home())
-    log_dir = Path(app_data) / "WinWhisperPlus"
+    log_file = _log_file_path()
+    log_dir = log_file.parent
     logger.setLevel(logging.INFO)
     logger.propagate = False
 
     formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(threadName)s %(message)s")
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / "winwhisperplus.log"
         handler = logging.FileHandler(log_file, encoding="utf-8")
     except OSError:
         handler = logging.NullHandler()
@@ -220,6 +225,7 @@ class Application(QObject):
             self._tray.open_settings_requested.connect(self._open_settings)
             self._tray.open_history_requested.connect(self._open_history)
             self._tray.open_statistics_requested.connect(self._open_statistics)
+            self._tray.open_log_requested.connect(self._open_log)
             self._tray.retry_failed_transcription_requested.connect(self._retry_last_failed_transcription)
             self._tray.quit_requested.connect(self._quit)
 
@@ -228,6 +234,7 @@ class Application(QObject):
             self._status_window.open_settings_requested.connect(self._open_settings)
             self._status_window.open_history_requested.connect(self._open_history)
             self._status_window.open_statistics_requested.connect(self._open_statistics)
+            self._status_window.open_log_requested.connect(self._open_log)
             self._status_window.retry_failed_transcription_requested.connect(self._retry_last_failed_transcription)
             self._status_window.quit_requested.connect(self._quit)
 
@@ -358,6 +365,16 @@ class Application(QObject):
         dlg = SettingsWindow(self._settings)
         dlg.settings_saved.connect(self._apply_settings)
         dlg.exec()
+
+    def _open_log(self) -> None:
+        log_path = _log_file_path()
+        try:
+            os.startfile(str(log_path))
+            LOGGER.info("Logdatei über Kontextmenü geöffnet | path=%s", log_path)
+        except OSError:
+            LOGGER.exception("Logdatei kann nicht geöffnet werden | path=%s", log_path)
+            if not self._test_mode:
+                self._status_window.show_message(tr("log_open_failed", self._settings))
 
     # ------------------------------------------------------------------
     # Recording

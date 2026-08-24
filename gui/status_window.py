@@ -38,6 +38,7 @@ class StatusWindow(QWidget):
     open_settings_requested = pyqtSignal()
     open_history_requested = pyqtSignal()
     open_statistics_requested = pyqtSignal()
+    open_log_requested = pyqtSignal()
     retry_failed_transcription_requested = pyqtSignal()
     quit_requested = pyqtSignal()
 
@@ -263,6 +264,9 @@ class StatusWindow(QWidget):
 
         retry_action = menu.addAction(tr("retry_failed_transcription", self._settings))
         retry_action.triggered.connect(self.retry_failed_transcription_requested.emit)
+
+        log_action = menu.addAction(tr("open_log", self._settings))
+        log_action.triggered.connect(self.open_log_requested.emit)
         
         # Settings action
         settings_action = menu.addAction(tr("settings", self._settings))

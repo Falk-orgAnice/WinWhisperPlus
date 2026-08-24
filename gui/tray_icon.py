@@ -113,6 +113,7 @@ class TrayIcon(QObject):
     open_settings_requested = pyqtSignal()
     open_history_requested = pyqtSignal()
     open_statistics_requested = pyqtSignal()
+    open_log_requested = pyqtSignal()
     retry_failed_transcription_requested = pyqtSignal()
     quit_requested = pyqtSignal()
 
@@ -126,6 +127,7 @@ class TrayIcon(QObject):
         self._history_action = None
         self._statistics_action = None
         self._retry_failed_transcription_action = None
+        self._log_action = None
         self._settings_action = None
         self._quit_action = None
         self._build_menu()
@@ -160,6 +162,8 @@ class TrayIcon(QObject):
             self._statistics_action.setText(tr("statistics", self._settings))
         if self._retry_failed_transcription_action is not None:
             self._retry_failed_transcription_action.setText(tr("retry_failed_transcription", self._settings))
+        if self._log_action is not None:
+            self._log_action.setText(tr("open_log", self._settings))
         if self._settings_action is not None:
             self._settings_action.setText(tr("settings", self._settings))
         if self._quit_action is not None:
@@ -186,6 +190,9 @@ class TrayIcon(QObject):
 
         self._retry_failed_transcription_action = menu.addAction(tr("retry_failed_transcription", self._settings))
         self._retry_failed_transcription_action.triggered.connect(self.retry_failed_transcription_requested)
+
+        self._log_action = menu.addAction(tr("open_log", self._settings))
+        self._log_action.triggered.connect(self.open_log_requested)
 
         self._settings_action = menu.addAction(tr("settings", self._settings))
         self._settings_action.triggered.connect(self.open_settings_requested)
