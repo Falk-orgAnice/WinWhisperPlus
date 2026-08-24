@@ -127,6 +127,7 @@ class TrayIcon(QObject):
         self._history_action = None
         self._statistics_action = None
         self._retry_failed_transcription_action = None
+        self._retry_failed_transcription_available = False
         self._log_action = None
         self._settings_action = None
         self._quit_action = None
@@ -153,6 +154,12 @@ class TrayIcon(QObject):
         self._record_action.setText(
             tr("record_stop", self._settings) if status == "recording" else tr("record_start", self._settings)
         )
+
+    def set_retry_failed_transcription_available(self, available: bool) -> None:
+        """Enable retry only while a recoverable recording exists."""
+        self._retry_failed_transcription_available = available
+        if self._retry_failed_transcription_action is not None:
+            self._retry_failed_transcription_action.setEnabled(available)
 
     def retranslate_ui(self, status: str = "ready") -> None:
         """Refresh all translated tray strings."""
@@ -190,6 +197,7 @@ class TrayIcon(QObject):
 
         self._retry_failed_transcription_action = menu.addAction(tr("retry_failed_transcription", self._settings))
         self._retry_failed_transcription_action.triggered.connect(self.retry_failed_transcription_requested)
+        self._retry_failed_transcription_action.setEnabled(self._retry_failed_transcription_available)
 
         self._log_action = menu.addAction(tr("open_log", self._settings))
         self._log_action.triggered.connect(self.open_log_requested)

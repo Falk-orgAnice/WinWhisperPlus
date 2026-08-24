@@ -171,6 +171,7 @@ class Application(QObject):
             self._statistics_window = StatisticsWindow(parent=None, settings=self._settings)
 
         self._connect_signals()
+        self._refresh_failed_transcription_actions()
         # NOTE: _apply_settings() is intentionally NOT called here.
         # It is called once in start(), after the window is already visible.
 
@@ -458,6 +459,7 @@ class Application(QObject):
     def _retry_last_failed_transcription(self) -> None:
         recording = self._failed_transcriptions.latest() if self._failed_transcriptions is not None else None
         if recording is None:
+            self._refresh_failed_transcription_actions()
             LOGGER.info("Keine gesicherte Aufnahme zum erneuten Transkribieren gefunden")
             if not self._test_mode:
                 self._status_window.show_message(tr("no_saved_transcription", self._settings))
@@ -481,6 +483,14 @@ class Application(QObject):
             args=(audio, recording.language, recording),
             daemon=True,
         ).start()
+
+    def _refresh_failed_transcription_actions(self) -> None:
+        """Reflect the persisted recovery state in both context menus."""
+        if self._test_mode:
+            return
+        recording_available = self._failed_transcriptions is not None and self._failed_transcriptions.latest() is not None
+        self._tray.set_retry_failed_transcription_available(recording_available)
+        self._status_window.set_retry_failed_transcription_available(recording_available)
 
     def _on_audio_chunk(self, audio_chunk) -> None:
         try:
@@ -688,6 +698,7 @@ class Application(QObject):
                 LOGGER.info("Erfolgreich wiederhergestellte Aufnahme entfernt | path=%s", recovered_recording.audio_path)
             except OSError:
                 LOGGER.exception("Erfolgreich wiederhergestellte Aufnahme konnte nicht entfernt werden")
+        self._refresh_failed_transcription_actions()
 
         self._status_changed.emit("inserted")
         # Reset to ready after a moment so the user sees the confirmation
@@ -702,6 +713,7 @@ class Application(QObject):
         if not self._test_mode:
             message_key = "transcription_saved" if recording_saved else "transcription_failed"
             self._status_window.show_message(tr(message_key, self._settings), duration_ms=6000)
+        self._refresh_failed_transcription_actions()
         self._status_changed.emit("ready")
 
     @pyqtSlot(str)

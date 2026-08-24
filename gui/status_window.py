@@ -102,6 +102,7 @@ class StatusWindow(QWidget):
         self._loading_message = tr("loading_models_generic", self._settings)
         self._hotkey_record = _format_hotkey(hotkey_record) if hotkey_record else ""
         self._record_action = None  # Will be created when context menu is first built
+        self._retry_failed_transcription_available = False
         self._refresh_primary_line()
         self._update_hotkey_display()
         self._update_second_line_visibility()
@@ -163,6 +164,10 @@ class StatusWindow(QWidget):
             self._record_action.setText(
                 tr("record_stop", self._settings) if self._base_status == "recording" else tr("record_start", self._settings)
             )
+
+    def set_retry_failed_transcription_available(self, available: bool) -> None:
+        """Enable the recovery action only if a saved recording is available."""
+        self._retry_failed_transcription_available = available
 
     # ------------------------------------------------------------------
     # Internal
@@ -264,6 +269,7 @@ class StatusWindow(QWidget):
 
         retry_action = menu.addAction(tr("retry_failed_transcription", self._settings))
         retry_action.triggered.connect(self.retry_failed_transcription_requested.emit)
+        retry_action.setEnabled(self._retry_failed_transcription_available)
 
         log_action = menu.addAction(tr("open_log", self._settings))
         log_action.triggered.connect(self.open_log_requested.emit)

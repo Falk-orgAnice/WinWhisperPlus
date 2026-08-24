@@ -77,3 +77,18 @@ def test_english_ui_translates_status_and_hotkey_label(qapp):
     assert window._hotkey_label.text() == "Ctrl+Alt+H"
 
     window.close()
+
+
+def test_recovery_action_is_disabled_without_a_saved_recording(qapp):
+    window = StatusWindow(hotkey_record="ctrl+alt+h")
+
+    menu = window._build_context_menu()
+    retry_action = next(action for action in menu.actions() if "Gesicherte Aufnahme" in action.text())
+    assert not retry_action.isEnabled()
+
+    window.set_retry_failed_transcription_available(True)
+    menu = window._build_context_menu()
+    retry_action = next(action for action in menu.actions() if "Gesicherte Aufnahme" in action.text())
+    assert retry_action.isEnabled()
+
+    window.close()
