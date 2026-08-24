@@ -29,6 +29,7 @@ from config.settings import Settings
 from core.hotkey_manager import HotkeyManager
 from core.live_text import extract_enter_command, merge_live_tail
 from core.emoji_enricher import enrich_with_emojis
+from core.failed_transcriptions import FailedTranscription, FailedTranscriptionStore
 from core.recorder import Recorder, SAMPLE_RATE, list_microphones
 from core.statistics import StatisticsStore
 from core.text_inserter import insert_text, press_enter, replace_text
@@ -73,8 +74,8 @@ class Application(QObject):
 
     # Signals are used to safely update the Qt GUI from background threads
     _status_changed = pyqtSignal(str)
-    _transcription_done = pyqtSignal(str)
-    _transcription_failed = pyqtSignal(str)
+    _transcription_done = pyqtSignal(str, object)
+    _transcription_failed = pyqtSignal(str, bool)
     _partial_transcription_done = pyqtSignal(str)
     _model_preload_started = pyqtSignal(str)
     _model_preload_finished = pyqtSignal(str, bool)
@@ -95,6 +96,7 @@ class Application(QObject):
         status_window=None,
         settings=None,
         statistics_store=None,
+        failed_transcription_dir=None,
     ) -> None:
         super().__init__()
         self._qapp = qapp
@@ -139,6 +141,11 @@ class Application(QObject):
         self._recording_started_at: datetime | None = None
         self._last_recording_duration_seconds = 0.0
         self._pending_stats_session = False
+        self._failed_transcriptions = (
+            FailedTranscriptionStore(failed_transcription_dir)
+            if not test_mode or failed_transcription_dir is not None
+            else None
+        )
         self._recorder = self._build_recorder(self._settings)
 
         self._insertion_worker = threading.Thread(
@@ -213,6 +220,7 @@ class Application(QObject):
             self._tray.open_settings_requested.connect(self._open_settings)
             self._tray.open_history_requested.connect(self._open_history)
             self._tray.open_statistics_requested.connect(self._open_statistics)
+            self._tray.retry_failed_transcription_requested.connect(self._retry_last_failed_transcription)
             self._tray.quit_requested.connect(self._quit)
 
             # Connect StatusWindow signals to same handlers as TrayIcon
@@ -220,6 +228,7 @@ class Application(QObject):
             self._status_window.open_settings_requested.connect(self._open_settings)
             self._status_window.open_history_requested.connect(self._open_history)
             self._status_window.open_statistics_requested.connect(self._open_statistics)
+            self._status_window.retry_failed_transcription_requested.connect(self._retry_last_failed_transcription)
             self._status_window.quit_requested.connect(self._quit)
 
             self._history_window.text_selected.connect(self._on_history_text_selected)
@@ -393,19 +402,68 @@ class Application(QObject):
             daemon=True,
         ).start()
 
-    def _transcribe_and_emit(self, audio, language: str) -> None:
+    def _transcribe_and_emit(
+        self,
+        audio,
+        language: str,
+        recovered_recording: FailedTranscription | None = None,
+    ) -> None:
         start = time.monotonic()
-        LOGGER.info("Finale Transkription gestartet | samples=%s", len(audio))
+        LOGGER.info(
+            "Finale Transkription gestartet | samples=%s recovered_recording=%s",
+            len(audio),
+            recovered_recording.audio_path if recovered_recording else None,
+        )
         try:
             text = self._transcriber_final.transcribe(audio, language=language)
         except Exception as exc:  # noqa: BLE001
             LOGGER.exception("Finale Transkription fehlgeschlagen")
-            self._transcription_failed.emit(str(exc))
+            recording_saved = recovered_recording is not None
+            if recovered_recording is None and self._failed_transcriptions is not None:
+                try:
+                    recovered_recording = self._failed_transcriptions.save(audio, language)
+                    recording_saved = True
+                    LOGGER.info(
+                        "Fehlgeschlagene Aufnahme gesichert | path=%s language=%s samples=%s",
+                        recovered_recording.audio_path,
+                        language,
+                        len(audio),
+                    )
+                except OSError:
+                    LOGGER.exception("Fehlgeschlagene Aufnahme konnte nicht gesichert werden")
+            self._transcription_failed.emit(str(exc), recording_saved)
             return
 
         elapsed = time.monotonic() - start
         LOGGER.info("Finale Transkription fertig | chars=%s duration=%.2fs", len(text), elapsed)
-        self._transcription_done.emit(text)
+        self._transcription_done.emit(text, recovered_recording)
+
+    def _retry_last_failed_transcription(self) -> None:
+        recording = self._failed_transcriptions.latest() if self._failed_transcriptions is not None else None
+        if recording is None:
+            LOGGER.info("Keine gesicherte Aufnahme zum erneuten Transkribieren gefunden")
+            if not self._test_mode:
+                self._status_window.show_message(tr("no_saved_transcription", self._settings))
+            return
+        try:
+            assert self._failed_transcriptions is not None
+            audio = self._failed_transcriptions.load_audio(recording)
+        except (OSError, ValueError):
+            LOGGER.exception("Gesicherte Aufnahme kann nicht gelesen werden | path=%s", recording.audio_path)
+            if not self._test_mode:
+                self._status_window.show_message(tr("saved_transcription_unreadable", self._settings))
+            return
+
+        LOGGER.info("Wiederhole gesicherte Aufnahme | path=%s language=%s samples=%s", recording.audio_path, recording.language, len(audio))
+        self._recording_started_at = datetime.now()
+        self._last_recording_duration_seconds = len(audio) / SAMPLE_RATE if len(audio) else 0.0
+        self._pending_stats_session = True
+        self._status_changed.emit("processing")
+        threading.Thread(
+            target=self._transcribe_and_emit,
+            args=(audio, recording.language, recording),
+            daemon=True,
+        ).start()
 
     def _on_audio_chunk(self, audio_chunk) -> None:
         try:
@@ -575,8 +633,8 @@ class Application(QObject):
             else:
                 self._status_window.set_loading(False)
 
-    @pyqtSlot(str)
-    def _on_transcription_done(self, text: str) -> None:
+    @pyqtSlot(str, object)
+    def _on_transcription_done(self, text: str, recovered_recording: FailedTranscription | None = None) -> None:
         LOGGER.info("Transkription empfangen | chars=%s", len(text or ""))
         if self._pending_stats_session and self._recording_started_at is not None:
             self._statistics.record_session(
@@ -607,18 +665,26 @@ class Application(QObject):
             if should_press_enter:
                 self._queue_enter()
 
+        if recovered_recording is not None and self._failed_transcriptions is not None:
+            try:
+                self._failed_transcriptions.delete(recovered_recording)
+                LOGGER.info("Erfolgreich wiederhergestellte Aufnahme entfernt | path=%s", recovered_recording.audio_path)
+            except OSError:
+                LOGGER.exception("Erfolgreich wiederhergestellte Aufnahme konnte nicht entfernt werden")
+
         self._status_changed.emit("inserted")
         # Reset to ready after a moment so the user sees the confirmation
         threading.Timer(2.0, lambda: self._status_changed.emit("ready")).start()
 
-    @pyqtSlot(str)
-    def _on_transcription_failed(self, message: str) -> None:
+    @pyqtSlot(str, bool)
+    def _on_transcription_failed(self, message: str, recording_saved: bool) -> None:
         LOGGER.error("Transkription fehlgeschlagen | %s", message)
         self._pending_stats_session = False
         self._recording_started_at = None
         self._last_recording_duration_seconds = 0.0
         if not self._test_mode:
-            self._status_window.show_message(tr("transcription_failed", self._settings))
+            message_key = "transcription_saved" if recording_saved else "transcription_failed"
+            self._status_window.show_message(tr(message_key, self._settings), duration_ms=6000)
         self._status_changed.emit("ready")
 
     @pyqtSlot(str)

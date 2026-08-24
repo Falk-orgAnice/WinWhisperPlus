@@ -43,6 +43,7 @@ def _make_app(
     transcribe_text: str = "hello world",
     transcriber_raise: Exception | None = None,
     transcriber_delay: float = 0.0,
+    failed_transcription_dir=None,
 ) -> tuple[Application, FakeRecorder, FakeTextSink]:
     """Build an Application in test mode with fake dependencies."""
     fake_final = FakeTranscriber(
@@ -62,6 +63,7 @@ def _make_app(
         transcriber_live=fake_live,
         transcriber_final=fake_final,
         text_sink=fake_sink,
+        failed_transcription_dir=failed_transcription_dir,
     )
     # Override live setting directly to avoid file I/O
     app._settings.live_transcription_enabled = live
@@ -248,6 +250,29 @@ class TestErrorRecovery:
         app.wait_for_idle(timeout_sec=8)
 
         assert app._statistics.get_aggregates("day") == []
+
+    def test_failed_transcription_is_saved_and_can_be_retried(self, qapp, tmp_path):
+        app, _, sink = _make_app(
+            qapp,
+            transcriber_raise=RuntimeError("temporary backend error"),
+            transcribe_text="recovered text",
+            failed_transcription_dir=tmp_path,
+        )
+        app.start()
+
+        app._toggle_recording()
+        app._toggle_recording()
+        assert app.wait_for_idle(timeout_sec=8)
+        assert app._failed_transcriptions is not None
+        assert app._failed_transcriptions.latest() is not None
+
+        app._transcriber_final._raise_exc = None
+        app._retry_last_failed_transcription()
+
+        assert app.wait_for_idle(timeout_sec=8)
+        assert app.get_history() == ["recovered text"]
+        assert "recovered text" in sink.all_text
+        assert app._failed_transcriptions.latest() is None
 
 
 # ---------------------------------------------------------------------------

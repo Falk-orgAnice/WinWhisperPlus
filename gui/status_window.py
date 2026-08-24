@@ -38,6 +38,7 @@ class StatusWindow(QWidget):
     open_settings_requested = pyqtSignal()
     open_history_requested = pyqtSignal()
     open_statistics_requested = pyqtSignal()
+    retry_failed_transcription_requested = pyqtSignal()
     quit_requested = pyqtSignal()
 
     def __init__(self, hotkey_record: str = "", settings=None) -> None:
@@ -259,6 +260,9 @@ class StatusWindow(QWidget):
         # Statistics action
         statistics_action = menu.addAction(tr("statistics", self._settings))
         statistics_action.triggered.connect(self.open_statistics_requested.emit)
+
+        retry_action = menu.addAction(tr("retry_failed_transcription", self._settings))
+        retry_action.triggered.connect(self.retry_failed_transcription_requested.emit)
         
         # Settings action
         settings_action = menu.addAction(tr("settings", self._settings))

@@ -141,6 +141,8 @@ Klicken Sie vor dem Stoppen der Aufnahme in das Ziel-Eingabefeld. Wenn das Zielp
 
 Öffnen Sie `%APPDATA%\WinWhisperPlus\winwhisperplus.log` und prüfen Sie die letzten Fehlermeldungen. Typische Ursachen sind ein nicht verfügbares Mikrofon, ein fehlgeschlagener Modell-Download oder zu wenig Speicher für ein großes Whisper-Modell.
 
+Wenn der Speicher-Server des aktiven Modells nicht erreichbar ist, versucht WinWhisperPlus automatisch dieselbe Aufnahme über die normale whisper.cpp-CLI. Schlägt auch das fehl, bleibt die Aufnahme als WAV-Datei unter `%APPDATA%\WinWhisperPlus\failed-transcriptions` erhalten. Wählen Sie im Tray-Menü oder im Rechtsklick-Menü des Statusfensters **Gesicherte Aufnahme erneut transkribieren**. Nach einer erfolgreichen Wiederherstellung entfernt die Anwendung die zugehörige WAV-Datei automatisch.
+
 ### Die Erkennung ist zu langsam
 
 Wählen Sie ein kleineres finales Modell, zum Beispiel `base` oder `small`. Für Live-Erkennung verwenden Sie `tiny` oder `base`. Eine Vulkan-fähige GPU kann die Verarbeitung deutlich beschleunigen, ist aber für die Grundfunktion nicht zwingend erforderlich.

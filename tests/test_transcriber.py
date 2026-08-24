@@ -131,6 +131,25 @@ def test_resident_model_mode_uses_server(transcriber, monkeypatch):
     assert transcriber.transcribe(np.ones(4, dtype=np.float32) * 0.01, language="de") == "resident text"
 
 
+def test_resident_model_mode_falls_back_to_cli_after_server_error(transcriber, monkeypatch):
+    transcriber.set_keep_model_loaded(True)
+    monkeypatch.setattr(transcriber, "_load_model", lambda: Path("model.bin"))
+    monkeypatch.setattr(transcriber, "_run_server", lambda *_args: (_ for _ in ()).throw(RuntimeError("server stopped")))
+    monkeypatch.setattr(transcriber, "_run_cli", lambda *_args: "recovered by cli")
+
+    assert transcriber.transcribe(np.ones(4, dtype=np.float32) * 0.01, language="de") == "recovered by cli"
+
+
+def test_resident_model_mode_reports_server_and_cli_errors(transcriber, monkeypatch):
+    transcriber.set_keep_model_loaded(True)
+    monkeypatch.setattr(transcriber, "_load_model", lambda: Path("model.bin"))
+    monkeypatch.setattr(transcriber, "_run_server", lambda *_args: (_ for _ in ()).throw(RuntimeError("server stopped")))
+    monkeypatch.setattr(transcriber, "_run_cli", lambda *_args: (_ for _ in ()).throw(RuntimeError("cli stopped")))
+
+    with pytest.raises(RuntimeError, match="CLI fallback also failed"):
+        transcriber.transcribe(np.ones(4, dtype=np.float32) * 0.01, language="de")
+
+
 def test_multipart_request_contains_wav_and_language():
     body, content_type = Transcriber._multipart_request(b"WAV", "de")
 

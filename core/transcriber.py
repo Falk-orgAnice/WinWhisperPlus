@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import json
+import logging
 import socket
 import subprocess
 import sys
@@ -18,6 +19,8 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+
+LOGGER = logging.getLogger("winwhisperplus")
 
 MODEL_FILENAMES = {
     "tiny": "ggml-tiny.bin",
@@ -86,6 +89,7 @@ class Transcriber:
         self._server_process: subprocess.Popen | None = None
         self._server_port: int | None = None
         self._server_model_path: Path | None = None
+        self._server_log_handle = None
         self.set_compute_device(compute_device)
 
     # ------------------------------------------------------------------
@@ -125,7 +129,29 @@ class Transcriber:
             if self._model_path is None:
                 self._model_path = self._load_model()
             if self._keep_model_loaded:
-                return self._run_server(audio, language)
+                try:
+                    return self._run_server(audio, language)
+                except Exception as server_error:  # noqa: BLE001
+                    # A resident server is an optimization.  Never discard a
+                    # recording merely because that optimization became unavailable.
+                    LOGGER.exception(
+                        "Residenter whisper.cpp-Server fehlgeschlagen; versuche CLI-Fallback | executable=%s model=%s",
+                        self._executable_path,
+                        self._model_path,
+                    )
+                    try:
+                        text = self._run_cli(audio, language)
+                    except Exception as cli_error:  # noqa: BLE001
+                        LOGGER.exception(
+                            "CLI-Fallback nach Serverfehler fehlgeschlagen | executable=%s model=%s",
+                            self._executable_path,
+                            self._model_path,
+                        )
+                        raise RuntimeError(
+                            f"Resident server failed ({server_error}); CLI fallback also failed ({cli_error})"
+                        ) from cli_error
+                    LOGGER.warning("CLI-Fallback nach Serverfehler erfolgreich")
+                    return text
             return self._run_cli(audio, language)
 
     def transcribe_chunk(
@@ -192,6 +218,15 @@ class Transcriber:
             )
         assert self._model_path is not None
 
+        LOGGER.info(
+            "whisper.cpp CLI gestartet | executable=%s model=%s language=%s samples=%s compute_device=%s",
+            self._executable_path,
+            self._model_path,
+            language or "auto",
+            len(audio),
+            self._compute_device,
+        )
+
         with tempfile.TemporaryDirectory(prefix="winwhisperplus-") as temporary_dir:
             temporary_path = Path(temporary_dir)
             audio_path = temporary_path / "audio.wav"
@@ -216,6 +251,7 @@ class Transcriber:
             )
             if completed.returncode != 0:
                 detail = (completed.stderr or completed.stdout).strip()
+                LOGGER.error("whisper.cpp CLI beendet mit returncode=%s | detail=%s", completed.returncode, detail)
                 raise RuntimeError(f"whisper.cpp transcription failed: {detail}")
 
             text_path = output_base.with_suffix(".txt")
@@ -236,6 +272,11 @@ class Transcriber:
 
         server_executable = self._executable_path.with_name("whisper-server.exe")
         if not server_executable.is_file():
+            LOGGER.error(
+                "whisper.cpp Server-Programm fehlt | cli=%s server=%s",
+                self._executable_path,
+                server_executable,
+            )
             raise RuntimeError(
                 "whisper.cpp server executable not found. Build a current release "
                 "or disable 'model loaded in memory'."
@@ -249,19 +290,30 @@ class Transcriber:
             "--no-timestamps",
         ]
         self._append_compute_device_arguments(command)
+        server_output = self._open_server_output_log()
         self._server_process = subprocess.Popen(
             command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=server_output or subprocess.DEVNULL,
+            stderr=server_output or subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         self._server_port = port
         self._server_model_path = self._model_path
+        LOGGER.info(
+            "whisper.cpp Server gestartet | pid=%s executable=%s model=%s port=%s compute_device=%s",
+            self._server_process.pid,
+            server_executable,
+            self._model_path,
+            port,
+            self._compute_device,
+        )
 
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if self._server_process.poll() is not None:
+                exit_code = self._server_process.returncode
                 self._stop_server()
+                LOGGER.error("whisper.cpp Server beim Laden beendet | exit_code=%s", exit_code)
                 raise RuntimeError("whisper.cpp server could not load the model")
             try:
                 with urllib.request.urlopen(self._server_url("/"), timeout=0.5):
@@ -269,10 +321,18 @@ class Transcriber:
             except (urllib.error.URLError, TimeoutError):
                 time.sleep(0.1)
         self._stop_server()
+        LOGGER.error("Zeitüberschreitung beim Laden des whisper.cpp Servers | model=%s", self._model_path)
         raise RuntimeError("Timed out while loading the whisper.cpp model server")
 
     def _run_server(self, audio: np.ndarray, language: Optional[str]) -> str:
         self._ensure_server()
+        LOGGER.info(
+            "whisper.cpp Server-Anfrage | port=%s model=%s language=%s samples=%s",
+            self._server_port,
+            self._model_path,
+            language or "auto",
+            len(audio),
+        )
         with tempfile.TemporaryDirectory(prefix="winwhisperplus-") as temporary_dir:
             audio_path = Path(temporary_dir) / "audio.wav"
             self._write_wav(audio_path, audio)
@@ -289,6 +349,7 @@ class Transcriber:
                 with urllib.request.urlopen(request, timeout=300) as response:
                     result = json.loads(response.read().decode("utf-8"))
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+                LOGGER.error("whisper.cpp Server-Anfrage fehlgeschlagen | port=%s error=%s", self._server_port, exc)
                 raise RuntimeError(f"whisper.cpp server transcription failed: {exc}") from exc
             return str(result.get("text", "")).strip()
 
@@ -331,6 +392,7 @@ class Transcriber:
 
     def _stop_server(self) -> None:
         if self._server_process is not None and self._server_process.poll() is None:
+            LOGGER.info("whisper.cpp Server wird beendet | pid=%s", self._server_process.pid)
             self._server_process.terminate()
             try:
                 self._server_process.wait(timeout=2)
@@ -339,6 +401,22 @@ class Transcriber:
         self._server_process = None
         self._server_port = None
         self._server_model_path = None
+        if self._server_log_handle is not None:
+            self._server_log_handle.close()
+            self._server_log_handle = None
+
+    def _open_server_output_log(self):
+        """Return an append-only native server log without blocking its output pipe."""
+        app_data = os.environ.get("APPDATA") or str(Path.home())
+        log_path = Path(app_data) / "WinWhisperPlus" / "whisper-server.log"
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            self._server_log_handle = log_path.open("a", encoding="utf-8")
+        except OSError:
+            LOGGER.exception("Native whisper.cpp Server-Ausgabe kann nicht protokolliert werden | path=%s", log_path)
+            return None
+        LOGGER.info("Native whisper.cpp Server-Ausgabe wird protokolliert | path=%s", log_path)
+        return self._server_log_handle
 
     @staticmethod
     def _write_wav(path: Path, audio: np.ndarray) -> None:
