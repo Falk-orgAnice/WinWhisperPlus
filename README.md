@@ -15,6 +15,7 @@ The same release supports AMD, NVIDIA, and Intel GPUs, plus CPU-only inference.
 - 📋 **Auto-insert** – Transcribed text is automatically pasted into the currently active input field.
 - ⚡ **Live mode** – Optional near real-time transcription inserts stable partial text while you are still speaking.
 - 📊 **Usage statistics** – Tracks successful sessions and shows count/total/average recording duration per day, week, and month.
+- 🛟 **Transcription recovery** – Falls back from the resident model server to the CLI and preserves recordings that still fail for a later retry.
 - 🎛️ **Microphone selection** – Choose from all connected input devices.
 - 🔔 **System tray** – Runs silently in the background with a tray icon and context menu.
 - ⚙️ **Settings GUI** – Configure hotkeys, language, microphone and Whisper model size.
@@ -129,6 +130,20 @@ file. Release builds and the Inno Setup package use the same version value.
 The processing choice is used for live and final transcription. When several
 Vulkan GPUs are available, each one is listed separately. Keeping models loaded
 reduces latency, but keeps RAM or GPU memory in use while the application runs.
+
+## Transcription recovery and diagnostics
+
+Keeping a model loaded is an optimization. If its local whisper.cpp server is
+unavailable, WinWhisperPlus automatically retries the same recording through
+the standard CLI. If both attempts fail, the recording is retained as a WAV
+file below `%APPDATA%\WinWhisperPlus\failed-transcriptions`. Use **Retry saved
+recording transcription** from the tray or status-window context menu; the
+action is disabled when no saved recording exists and the WAV is removed after
+a successful retry.
+
+Use **Open log file** from either context menu for
+`%APPDATA%\WinWhisperPlus\winwhisperplus.log`. Native server output, including
+Vulkan or memory errors, is written to `whisper-server.log` in the same folder.
 
 ### Microphone troubleshooting
 

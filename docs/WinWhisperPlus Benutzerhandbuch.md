@@ -1,6 +1,12 @@
 # WinWhisperPlus Benutzerhandbuch
 
-Dieses Handbuch beschreibt die Bedienung von WinWhisperPlus ab Version 1.1. WinWhisperPlus ist ein Windows-Tool für lokale Spracherkennung mit `whisper.cpp`. Die Aufnahme wird lokal verarbeitet; nach der Erkennung kann der Text automatisch in das aktive Eingabefeld eingefügt werden.
+Dieses Handbuch beschreibt die Bedienung von WinWhisperPlus ab Version 1.2. WinWhisperPlus ist ein Windows-Tool für lokale Spracherkennung mit `whisper.cpp`. Die Aufnahme wird lokal verarbeitet; nach der Erkennung kann der Text automatisch in das aktive Eingabefeld eingefügt werden.
+
+## Neu in Version 1.2
+
+- Wenn der lokale Speicher-Server eines Whisper-Modells ausfällt, verarbeitet WinWhisperPlus dieselbe Aufnahme automatisch über die normale whisper.cpp-CLI.
+- Falls auch dieser Fallback scheitert, wird die Aufnahme als WAV-Datei gesichert und kann später erneut transkribiert werden. So geht ein gesprochenes Diktat nicht verloren.
+- Das Kontextmenü bietet `Logdatei öffnen` für einen direkten Zugriff auf die Fehlermeldungen. Die Server-Ausgabe wird zusätzlich separat protokolliert.
 
 ## Neu in Version 1.1
 
@@ -43,6 +49,8 @@ Im unteren Bereich des Statusfensters steht der Aufnahme-Hotkey. Mit Rechtsklick
 - `Aufnahme starten` oder `Aufnahme stoppen`
 - `Verlauf...`
 - `Statistiken...`
+- `Gesicherte Aufnahme erneut transkribieren`: Wird nur aktiv, wenn eine fehlgeschlagene Aufnahme gesichert wurde.
+- `Logdatei öffnen`
 - `Einstellungen...`
 - `Beenden`
 
@@ -114,6 +122,8 @@ Wichtige Dateien:
 - `settings.json`: Hotkeys, Sprachen, Mikrofon, Modelle, Ausführung und weitere Einstellungen.
 - `statistics.json`: Statistikdaten erfolgreicher finaler Transkriptionen.
 - `winwhisperplus.log`: Laufzeitmeldungen und Fehlerhinweise.
+- `whisper-server.log`: native Ausgabe des lokalen whisper.cpp-Servers, etwa bei Vulkan- oder Speicherfehlern.
+- `failed-transcriptions\`: gesicherte WAV-Aufnahmen, deren Transkription auch nach dem CLI-Fallback fehlgeschlagen ist.
 
 Die heruntergeladenen Whisper-Modelle liegen unter `%LOCALAPPDATA%\WinWhisperPlus\models` (falls `%LOCALAPPDATA%` nicht verfügbar ist, unter `%APPDATA%\WinWhisperPlus\models`).
 
@@ -139,9 +149,9 @@ Klicken Sie vor dem Stoppen der Aufnahme in das Ziel-Eingabefeld. Wenn das Zielp
 
 ### Die Transkription schlägt fehl
 
-Öffnen Sie `%APPDATA%\WinWhisperPlus\winwhisperplus.log` und prüfen Sie die letzten Fehlermeldungen. Typische Ursachen sind ein nicht verfügbares Mikrofon, ein fehlgeschlagener Modell-Download oder zu wenig Speicher für ein großes Whisper-Modell.
+Wählen Sie im Kontextmenü `Logdatei öffnen` oder öffnen Sie `%APPDATA%\WinWhisperPlus\winwhisperplus.log` manuell und prüfen Sie die letzten Fehlermeldungen. Typische Ursachen sind ein nicht verfügbares Mikrofon, ein fehlgeschlagener Modell-Download oder zu wenig Speicher für ein großes Whisper-Modell. Bei Fehlern des lokalen Servers kann zusätzlich `%APPDATA%\WinWhisperPlus\whisper-server.log` die native Fehlerursache enthalten.
 
-Wenn der Speicher-Server des aktiven Modells nicht erreichbar ist, versucht WinWhisperPlus automatisch dieselbe Aufnahme über die normale whisper.cpp-CLI. Schlägt auch das fehl, bleibt die Aufnahme als WAV-Datei unter `%APPDATA%\WinWhisperPlus\failed-transcriptions` erhalten. Wählen Sie im Tray-Menü oder im Rechtsklick-Menü des Statusfensters **Gesicherte Aufnahme erneut transkribieren**. Nach einer erfolgreichen Wiederherstellung entfernt die Anwendung die zugehörige WAV-Datei automatisch.
+Wenn der Speicher-Server des aktiven Modells nicht erreichbar ist, versucht WinWhisperPlus automatisch dieselbe Aufnahme über die normale whisper.cpp-CLI. Schlägt auch das fehl, bleibt die Aufnahme als WAV-Datei unter `%APPDATA%\WinWhisperPlus\failed-transcriptions` erhalten. Der Menüpunkt **Gesicherte Aufnahme erneut transkribieren** wird dann aktiv. Nach einer erfolgreichen Wiederherstellung entfernt die Anwendung die zugehörige WAV-Datei automatisch und deaktiviert den Menüpunkt wieder.
 
 ### Die Erkennung ist zu langsam
 
