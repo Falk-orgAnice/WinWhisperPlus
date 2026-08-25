@@ -73,15 +73,23 @@ def _make_app(
     return app, fake_rec, fake_sink
 
 
-def test_open_log_uses_the_per_user_log_path(qapp, monkeypatch, tmp_path):
+def test_open_log_opens_application_and_model_server_logs(qapp, monkeypatch, tmp_path):
     app, _, _ = _make_app(qapp)
     monkeypatch.setenv("APPDATA", str(tmp_path))
+    log_dir = tmp_path / "WinWhisperPlus"
+    log_dir.mkdir()
+    (log_dir / "whisper-server-small.log").touch()
+    (log_dir / "whisper-server-tiny.log").touch()
     opened_paths: list[str] = []
     monkeypatch.setattr("app.os.startfile", opened_paths.append)
 
     app._open_log()
 
-    assert opened_paths == [str(tmp_path / "WinWhisperPlus" / "winwhisperplus.log")]
+    assert opened_paths == [
+        str(log_dir / "winwhisperplus.log"),
+        str(log_dir / "whisper-server-small.log"),
+        str(log_dir / "whisper-server-tiny.log"),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +106,24 @@ class TestStartup:
         app, _, _ = _make_app(qapp)
         app.start()
         assert app.get_history() == []
+
+    def test_preload_skips_live_model_when_live_transcription_is_disabled(self, qapp):
+        app, _, _ = _make_app(qapp, live=False)
+
+        app._preload_models()
+
+        assert app._transcriber_final.load_called is True
+        assert app._transcriber_live.load_called is False
+
+    def test_preload_loads_final_before_live_model_when_live_transcription_is_enabled(self, qapp, monkeypatch):
+        app, _, _ = _make_app(qapp, live=True)
+        load_order = []
+        monkeypatch.setattr(app._transcriber_final, "load", lambda: load_order.append("final"))
+        monkeypatch.setattr(app._transcriber_live, "load", lambda: load_order.append("live"))
+
+        app._preload_models()
+
+        assert load_order == ["final", "live"]
 
     def test_microphone_index_is_restored_from_name(self, qapp, monkeypatch):
         app, _, _ = _make_app(qapp)

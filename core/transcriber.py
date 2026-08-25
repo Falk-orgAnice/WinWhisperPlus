@@ -406,9 +406,9 @@ class Transcriber:
             self._server_log_handle = None
 
     def _open_server_output_log(self):
-        """Return an append-only native server log without blocking its output pipe."""
+        """Return a per-model native server log without blocking its output pipe."""
         app_data = os.environ.get("APPDATA") or str(Path.home())
-        log_path = Path(app_data) / "WinWhisperPlus" / "whisper-server.log"
+        log_path = Path(app_data) / "WinWhisperPlus" / f"whisper-server-{self._model_name}.log"
         try:
             log_path.parent.mkdir(parents=True, exist_ok=True)
             self._server_log_handle = log_path.open("a", encoding="utf-8")

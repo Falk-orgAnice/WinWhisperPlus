@@ -47,6 +47,13 @@ def _log_file_path() -> Path:
     return Path(app_data) / "WinWhisperPlus" / "winwhisperplus.log"
 
 
+def _log_file_paths() -> list[Path]:
+    """Return the application log and all available per-model server logs."""
+    application_log = _log_file_path()
+    server_logs = sorted(application_log.parent.glob("whisper-server-*.log"))
+    return [application_log, *server_logs]
+
+
 def _build_logger() -> logging.Logger:
     logger = logging.getLogger("winwhisperplus")
     if logger.handlers:
@@ -295,8 +302,19 @@ class Application(QObject):
         QTimer.singleShot(delay_ms, self._preload_models_async)
 
     def _preload_models_async(self) -> None:
-        threading.Thread(target=self._load_live_model, daemon=True).start()
-        threading.Thread(target=self._load_final_model, daemon=True).start()
+        # Loading two whisper.cpp servers at once competes heavily for CPU, RAM,
+        # and disk I/O.  In particular, this can make either server miss its
+        # readiness deadline on CPU-only systems.  Keep the final model first:
+        # it is the one required for a normal recording.
+        threading.Thread(target=self._preload_models, daemon=True).start()
+
+    def _preload_models(self) -> None:
+        """Preload only the models that the current configuration needs."""
+        self._load_final_model()
+        if self._settings.live_transcription_enabled:
+            self._load_live_model()
+        else:
+            LOGGER.info("Preload Live-Modell übersprungen | live_enabled=False")
 
     def _load_live_model(self) -> None:
         self._model_preload_started.emit("live")
@@ -368,14 +386,16 @@ class Application(QObject):
         dlg.exec()
 
     def _open_log(self) -> None:
-        log_path = _log_file_path()
-        try:
-            os.startfile(str(log_path))
-            LOGGER.info("Logdatei über Kontextmenü geöffnet | path=%s", log_path)
-        except OSError:
-            LOGGER.exception("Logdatei kann nicht geöffnet werden | path=%s", log_path)
-            if not self._test_mode:
-                self._status_window.show_message(tr("log_open_failed", self._settings))
+        failed_paths = []
+        for log_path in _log_file_paths():
+            try:
+                os.startfile(str(log_path))
+                LOGGER.info("Logdatei über Kontextmenü geöffnet | path=%s", log_path)
+            except OSError:
+                failed_paths.append(log_path)
+                LOGGER.exception("Logdatei kann nicht geöffnet werden | path=%s", log_path)
+        if failed_paths and not self._test_mode:
+            self._status_window.show_message(tr("log_open_failed", self._settings))
 
     # ------------------------------------------------------------------
     # Recording

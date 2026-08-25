@@ -58,6 +58,20 @@ def test_load_preloads_model(transcriber, monkeypatch):
     assert len(loaded) == 1
 
 
+def test_native_server_log_is_separated_by_model(tmp_path, monkeypatch):
+    executable = tmp_path / "whisper-cli.exe"
+    executable.touch()
+    transcriber = Transcriber("base", executable_path=executable, model_dir=tmp_path / "models")
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+
+    log_handle = transcriber._open_server_output_log()
+    assert log_handle is not None
+    try:
+        assert Path(log_handle.name) == tmp_path / "WinWhisperPlus" / "whisper-server-base.log"
+    finally:
+        log_handle.close()
+
+
 def test_cli_failure_includes_backend_error(transcriber, monkeypatch):
     monkeypatch.setattr(transcriber, "_load_model", lambda: Path("model.bin"))
     monkeypatch.setattr(
