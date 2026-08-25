@@ -95,7 +95,7 @@ Für Live-Erkennung ohne schnelle GPU sind kleine Modelle sinnvoll. Beginnen Sie
 
 ## Verlauf
 
-Der Verlauf zeigt zuletzt erkannte Texte der aktuellen Sitzung. Der neueste Eintrag steht oben. Markieren Sie einen Eintrag und klicken Sie auf `Einfügen`, oder doppelklicken Sie auf den Eintrag, um ihn erneut in das aktive Zielprogramm einzufügen.
+Der Verlauf zeigt zuletzt erkannte Texte der aktuellen Sitzung. Der neueste Eintrag steht oben. Markieren Sie einen Eintrag und klicken Sie auf `Einfügen`, oder doppelklicken Sie auf den Eintrag, um ihn erneut in das aktive Zielprogramm einzufügen. Mit `Kopieren` oder `Strg+C` (bei Fokus in der Verlaufsliste) kopieren Sie den vollständigen ausgewählten Eintrag in die Zwischenablage.
 
 ![Transkriptions-Verlauf](images/manual/history.png)
 
