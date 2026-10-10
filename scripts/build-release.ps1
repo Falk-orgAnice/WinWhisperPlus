@@ -22,8 +22,8 @@ $installerScriptPath = Join-Path $repoRoot "installer\WinWhisperPlus.iss"
 $installerBaseExePath = Join-Path $distDir "WinWhisperPlus-Setup.exe"
 $versionFilePath = Join-Path $repoRoot "VERSION"
 $pythonVersionArgs = @("-3.14", "-3.13", "-3.12", "-3.11", "-3.10")
-$whisperCppVersion = "v1.9.1"
-$llamaCppVersion = "b9999"
+$whisperCppVersion = "v1.9.4"
+$llamaCppVersion = "v0.6.0"
 $whisperCppWorkDir = Join-Path $env:TEMP "wwp-wcpp"
 $whisperCppSourceDir = Join-Path $whisperCppWorkDir "src"
 $whisperCppBuildDir = Join-Path $whisperCppWorkDir "build"
@@ -35,7 +35,9 @@ $textOptimizerRuntimeDir = Join-Path $repoRoot "build\textoptimizer-runtime"
 $textModelDir = Join-Path $textOptimizerRuntimeDir "models"
 $textModelFileName = "Qwen_Qwen3-4B-Q4_K_M.gguf"
 $textModelPath = Join-Path $textModelDir $textModelFileName
-$textModelUrl = "https://huggingface.co/bartowski/Qwen_Qwen3-4B-GGUF/resolve/main/$textModelFileName"
+$textModelRevision = "cb76885dc66d50759b207c5a48c4e78dfa00c638"
+$textModelSha256 = "fbe1d5edd4ce802ae3ae7c7e4ab7d09789d697fdac1fc7929f8df4ca3c41bae3"
+$textModelUrl = "https://huggingface.co/bartowski/Qwen_Qwen3-4B-GGUF/resolve/$textModelRevision/$textModelFileName"
 
 function Invoke-Step {
     param(
@@ -60,11 +62,35 @@ function Remove-BuildPath {
         return
     }
 
+    $resolvedTarget = [System.IO.Path]::GetFullPath($Path)
+    $allowedRoots = @((Join-Path $repoRoot "build"), (Join-Path $repoRoot "dist"))
+    $insideBuildRoot = $false
+    foreach ($allowedRoot in $allowedRoots) {
+        $resolvedRoot = [System.IO.Path]::GetFullPath($allowedRoot)
+        if ($resolvedTarget -eq $resolvedRoot -or $resolvedTarget.StartsWith($resolvedRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $insideBuildRoot = $true
+        }
+    }
+    if (-not $insideBuildRoot -or ((Get-Item -LiteralPath $resolvedTarget).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        throw "Unsicherer Build-Loeschpfad: $resolvedTarget"
+    }
+
     try {
-        Remove-Item -Recurse -Force $Path
+        Remove-Item -LiteralPath $resolvedTarget -Recurse -Force
     } catch {
         throw "Konnte '$Path' nicht loeschen. Bitte pruefen, ob WinWhisperPlus.exe oder ein Prozess aus dem dist-Ordner noch laeuft, und den Build danach erneut starten. Originalfehler: $($_.Exception.Message)"
     }
+}
+
+function Remove-TemporaryBuildPath {
+    param([string]$Path, [string]$ExpectedName)
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $resolvedTarget = [System.IO.Path]::GetFullPath($Path)
+    $expectedTarget = [System.IO.Path]::GetFullPath((Join-Path $env:TEMP $ExpectedName))
+    if ($resolvedTarget -ne $expectedTarget -or ((Get-Item -LiteralPath $resolvedTarget).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        throw "Unsicherer temporaerer Build-Loeschpfad: $resolvedTarget"
+    }
+    Remove-Item -LiteralPath $resolvedTarget -Recurse -Force
 }
 
 function Invoke-NativeCommand {
@@ -154,7 +180,7 @@ function Build-WhisperCppVulkanRuntime {
     }
 
     if (Test-Path $whisperCppWorkDir) {
-        Remove-Item -Recurse -Force $whisperCppWorkDir
+        Remove-TemporaryBuildPath $whisperCppWorkDir "wwp-wcpp"
     }
     New-Item -ItemType Directory -Force -Path $whisperCppWorkDir | Out-Null
 
@@ -163,6 +189,9 @@ function Build-WhisperCppVulkanRuntime {
             https://github.com/ggml-org/whisper.cpp.git $whisperCppSourceDir
     } "whisper.cpp konnte nicht abgerufen werden."
 
+    Invoke-NativeCommand {
+        & $pythonExe (Join-Path $PSScriptRoot "patch-whisper-timestamps.py") $whisperCppSourceDir
+    } "VAD-Zeitmarken konnten nicht korrigiert werden."
     Invoke-NativeCommand {
         & $cmakeExe -S $whisperCppSourceDir -B $whisperCppBuildDir `
             -DGGML_VULKAN=1 -DWHISPER_BUILD_TESTS=OFF `
@@ -195,7 +224,7 @@ function Build-TextOptimizerRuntime {
     }
 
     if (Test-Path $llamaCppWorkDir) {
-        Remove-Item -Recurse -Force $llamaCppWorkDir
+        Remove-TemporaryBuildPath $llamaCppWorkDir "wwp-llama"
     }
     New-Item -ItemType Directory -Force -Path $llamaCppWorkDir | Out-Null
     Invoke-NativeCommand {
@@ -235,6 +264,9 @@ function Build-TextOptimizerRuntime {
         throw "Das heruntergeladene Qwen3-Modell ist unerwartet klein und wird nicht paketiert."
     }
     $modelHash = (Get-FileHash -Path $textModelPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($modelHash -ne $textModelSha256) {
+        throw "Das Textmodell stimmt nicht mit der festgelegten Upstream-Pruefsumme ueberein."
+    }
     Set-Content -Path (Join-Path $textModelDir "text-model.sha256") `
         -Value "$modelHash  $textModelFileName" -NoNewline -Encoding ascii
     Invoke-WebRequest -Uri "https://www.apache.org/licenses/LICENSE-2.0.txt" `
@@ -376,6 +408,8 @@ Invoke-Step "Baue WinWhisperPlus.exe" {
         & $pythonExe -m PyInstaller --clean .\WinWhisperPlus.spec
     } "PyInstaller-Build ist fehlgeschlagen."
 }
+
+Copy-Item -LiteralPath (Join-Path $repoRoot "assets\model-catalog.json") -Destination (Join-Path $distDir "model-catalog.json") -Force
 
 if (-not $SkipSigning) {
     Invoke-Step "Signiere WinWhisperPlus.exe" {

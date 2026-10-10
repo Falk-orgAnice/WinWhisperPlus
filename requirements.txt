@@ -9,3 +9,4 @@ keyboard>=0.13.5
 pywin32>=306
 Pillow>=10.0.0
 pyautogui>=0.9.54
+imageio-ffmpeg==0.6.0

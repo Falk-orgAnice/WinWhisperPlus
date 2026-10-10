@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import socket
@@ -20,11 +21,14 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+from core.models import Cancelled, ModelManager
+from core.cancellation import interrupt_on_cancel
 
 
 MODEL_FILENAME = "Qwen_Qwen3-4B-Q4_K_M.gguf"
 MODEL_SHA256_FILENAME = "text-model.sha256"
 _DEFAULT_TIMEOUT_SECONDS = 45.0
+LOGGER = logging.getLogger("winwhisperplus")
 _MESSAGE_GREETING_PATTERN = re.compile(
     r"^(?:hallo|hi|hey|hello|dear|liebe(?:r|s)?|guten\s+(?:morgen|tag|abend)|"
     r"good\s+(?:morning|afternoon|evening)|bonjour|salut|cher(?:e)?|chère|"
@@ -38,6 +42,10 @@ _SENTENCE_LINE_BREAK_PATTERN = re.compile(
 
 class TextOptimizationError(RuntimeError):
     """Raised when local text optimization cannot produce a safe result."""
+
+
+class TruncatedResponse(TextOptimizationError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -106,6 +114,7 @@ def build_system_prompt(options: TextOptimizationOptions, language: str | None =
     )
     return (
         "You edit a speech transcription. Return only the requested JSON object. "
+        "Preserve every token starting with WWPNAME exactly once, byte for byte, without translation. "
         + language_instruction
         + " ".join(instructions)
         + " Return exactly one JSON object with this exact schema: {\"text\": \"the optimized "
@@ -170,10 +179,11 @@ class TextOptimizer:
         model_hash_path: str | Path | None = None,
         request_timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         request_callable: Callable[[dict], object] | None = None,
+        model_id: str = "bundled-qwen3-4b",
     ) -> None:
         self._compute_device = compute_device
         self._executable_path = Path(executable_path) if executable_path else self._find_executable()
-        self._model_path = Path(model_path) if model_path else self._find_model()
+        self._model_path = Path(model_path) if model_path else self._selected_model_path(model_id)
         self._model_hash_path = Path(model_hash_path) if model_hash_path else self._model_path.with_name(MODEL_SHA256_FILENAME)
         self._request_timeout_seconds = request_timeout_seconds
         self._request_callable = request_callable
@@ -181,6 +191,47 @@ class TextOptimizer:
         self._server_process: subprocess.Popen | None = None
         self._server_port: int | None = None
         self._hash_verified = False
+        self._verified_stat = None
+        self._model_id = model_id
+
+    def set_model(self, model_id: str) -> None:
+        with self._lock:
+            path = self._selected_model_path(model_id)
+            current_stat = (path.stat().st_size, path.stat().st_mtime_ns) if path.is_file() else None
+            if model_id == self._model_id and path == self._model_path and (
+                self._verified_stat is None or current_stat == self._verified_stat
+            ):
+                return
+            self._stop_server()
+            self._model_id = model_id
+            self._model_path = path
+            self._model_hash_path = path.with_name(MODEL_SHA256_FILENAME)
+            self._hash_verified = False
+            self._verified_stat = None
+
+    def _selected_model_path(self, model_id):
+        if model_id == "bundled-qwen3-4b":
+            return self._find_model()
+        manager = ModelManager()
+        activated = manager.installed_spec(model_id)
+        return manager.path(activated or manager.catalog[model_id])
+
+    def prepare(self, *, cancel=None, progress=None):
+        """Download only when actual text work is required, after recognition."""
+        if cancel and cancel.is_set():
+            raise Cancelled("Cancelled")
+        if self._model_id == "bundled-qwen3-4b":
+            return
+        LOGGER.info("Preparing text model %s", self._model_id)
+        manager = ModelManager(self._model_path.parent)
+        path = manager.ensure(self._model_id, cancel, progress)
+        with self._lock:
+            if path != self._model_path:
+                self._stop_server()
+                self._model_path = path
+                self._hash_verified = False
+                self._verified_stat = None
+        LOGGER.info("Text model ready: %s", self._model_id)
 
     def optimize(
         self,
@@ -188,19 +239,76 @@ class TextOptimizer:
         *,
         options: TextOptimizationOptions,
         language: str | None = None,
+        cancel=None,
     ) -> str:
+        with interrupt_on_cancel(cancel, self._stop_server):
+            try:
+                return self._optimize(text, options=options, language=language, cancel=cancel)
+            except Exception:
+                if cancel and cancel.is_set():
+                    raise Cancelled("Cancelled")
+                raise
+
+    def _optimize(self, text, *, options, language=None, cancel=None):
         """Optimize *text*, retrying exactly once before raising an error."""
         if not text or not text.strip():
             return text
+        if cancel and cancel.is_set():
+            raise Cancelled("Cancelled")
+        if not self._fits_context(text, options, language):
+            return self._optimize_split(text, options, language, cancel)
+        try:
+            return self._optimize_section(text, options, language, cancel)
+        except TruncatedResponse:
+            return self._optimize_split(text, options, language, cancel)
+
+    def _optimize_split(self, text, options, language, cancel):
+        left, right = self._split_text(text)
+        return self.optimize(left, options=options, language=language, cancel=cancel) + "\n\n" + self.optimize(right, options=options, language=language, cancel=cancel)
+
+    @staticmethod
+    def _split_text(text):
+        midpoint = len(text) // 2
+        boundaries = [m.end() for m in re.finditer(r"\n\n|(?<=[.!?])\s+", text) if 0 < m.end() < len(text)]
+        if not boundaries:
+            boundaries = [m.end() for m in re.finditer(r"\s+", text) if 0 < m.end() < len(text)]
+        if not boundaries:
+            raise TextOptimizationError("Cannot split oversized or truncated text safely")
+        boundary = min(boundaries, key=lambda x: abs(x - midpoint))
+        return text[:boundary].rstrip(), text[boundary:].lstrip()
+
+    def _fits_context(self, text, options, language):
         payload = self._build_request(text, options=options, language=language)
+        if self._request_callable is not None:
+            # Test seam only; real inference always uses its own model tokenizer.
+            return sum(len(m["content"]) for m in payload["messages"]) < 9000
+        with self._lock:
+            self._ensure_server()
+            template = self._local_json("/apply-template", {"messages": payload["messages"], "chat_template_kwargs": {"enable_thinking": False}})
+            tokenized = self._local_json("/tokenize", {"content": template["prompt"], "add_special": True})
+        return len(tokenized["tokens"]) + 4096 + 512 <= 8192
+
+    def _local_json(self, endpoint, payload):
+        request = urllib.request.Request(self._server_url(endpoint), data=json.dumps(payload).encode("utf-8"),
+                                         headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(request, timeout=self._request_timeout_seconds) as response:
+            return json.load(response)
+
+    def _optimize_section(self, text, options, language, cancel):
+        payload = self._build_request(text, options=options, language=language)
+        payload["max_tokens"] = 4096
         last_error: Exception | None = None
         for attempt in range(2):
+            if cancel and cancel.is_set():
+                raise Cancelled("Cancelled")
             try:
                 with self._lock:
                     if self._request_callable is None:
                         self._ensure_server()
                     response = self._request(payload)
                 return self._parse_response(response, format_message=options.formatting)
+            except TruncatedResponse:
+                raise
             except Exception as exc:  # noqa: BLE001 - converted to stable domain error below
                 last_error = exc
                 if attempt == 0:
@@ -235,7 +343,7 @@ class TextOptimizer:
             "additionalProperties": False,
         }
         return {
-            "model": "Qwen3-4B",
+            "model": self._model_id,
             "stream": False,
             "temperature": 0,
             "max_tokens": min(4096, max(256, len(text.split()) * 3)),
@@ -265,6 +373,8 @@ class TextOptimizer:
     @staticmethod
     def _parse_response(response: object, *, format_message: bool) -> str:
         try:
+            if response["choices"][0].get("finish_reason") == "length":
+                raise TruncatedResponse("Model output reached its token limit")
             content = response["choices"][0]["message"]["content"]  # type: ignore[index]
             result = json.loads(content) if isinstance(content, str) else content
             if not isinstance(result, dict):
@@ -307,7 +417,7 @@ class TextOptimizer:
         self._server_port = port
         deadline = time.monotonic() + self._request_timeout_seconds
         while time.monotonic() < deadline:
-            if self._server_process.poll() is not None:
+            if self._server_process is None or self._server_process.poll() is not None:
                 self._stop_server()
                 raise TextOptimizationError("Bundled llama-server could not load the model")
             try:
@@ -320,6 +430,15 @@ class TextOptimizer:
 
     def _verify_model_hash(self) -> None:
         if self._hash_verified:
+            return
+        if self._model_id != "bundled-qwen3-4b":
+            manager = ModelManager(self._model_path.parent)
+            activated = manager.installed_spec(self._model_id)
+            model = activated or manager.catalog[self._model_id]
+            if not model.compatible or not manager.verify(model):
+                raise TextOptimizationError("Text model checksum mismatch")
+            self._hash_verified = True
+            self._verified_stat = (self._model_path.stat().st_size, self._model_path.stat().st_mtime_ns)
             return
         if not self._model_hash_path.is_file():
             raise TextOptimizationError(f"Text model checksum not found: {self._model_hash_path}")

@@ -75,3 +75,25 @@ def test_settings_window_offers_french_and_dutch_for_dictation_and_translation(q
     assert dictation_languages == ["de", "pl", "en", "fr", "nl"]
     assert translation_languages == dictation_languages
     window.close()
+
+
+def test_cancel_does_not_modify_original_rules(qapp, monkeypatch):
+    monkeypatch.setattr("gui.settings_window.list_microphones", lambda: [])
+    monkeypatch.setattr("gui.settings_window.list_vulkan_devices", lambda: [])
+    settings = Settings()
+    settings.correction_rules = [{"source": "Organize", "target": "orgAnice"}]
+    window = SettingsWindow(settings)
+    window._rules_table.item(0, 2).setText("Changed")
+    window.reject()
+    assert settings.correction_rules[0]["target"] == "orgAnice"
+
+
+def test_translation_can_be_enabled_without_text_optimization(qapp, monkeypatch):
+    monkeypatch.setattr("gui.settings_window.list_microphones", lambda: [])
+    monkeypatch.setattr("gui.settings_window.list_vulkan_devices", lambda: [])
+    window = SettingsWindow(Settings())
+    window._text_optimization_cb.setChecked(False)
+    window._text_translation_cb.setChecked(True)
+    assert window._text_translation_cb.isEnabled()
+    assert window._text_translation_target_combo.isEnabled()
+    window.close()

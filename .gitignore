@@ -38,3 +38,4 @@ Thumbs.db
 
 # App data (don't commit user settings)
 *.json
+!assets/model-catalog.json

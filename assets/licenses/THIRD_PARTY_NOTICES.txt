@@ -9,7 +9,7 @@ llama.cpp
 ---------
 Project: https://github.com/ggml-org/llama.cpp
 License: MIT License
-Source revision: b9999 (recorded by scripts/build-release.ps1)
+Source revision: v0.6.0 (recorded by scripts/build-release.ps1)
 
 Qwen3-4B / Qwen_Qwen3-4B-Q4_K_M.gguf
 --------------------------------------
@@ -20,3 +20,33 @@ License: Apache License 2.0
 The release build records the SHA-256 hash of the exact GGUF file in
 textoptimizer/models/text-model.sha256. WinWhisperPlus verifies this hash
 before it starts the local model server.
+
+whisper.cpp 1.9.4 and Whisper / Silero VAD
+---------------------------------------
+Projects: https://github.com/ggml-org/whisper.cpp
+          https://github.com/snakers4/silero-vad
+Licenses: MIT. Models are downloaded from revision-pinned upstream repositories
+listed in assets/model-catalog.json and checked against SHA-256 before use.
+Local modification to whisper.cpp 1.9.4: CLI/server JSON exporters use the
+library's VAD-aware token timestamp accessors instead of raw token_data times.
+The reproducible source patch is scripts/patch-whisper-timestamps.py.
+
+FFmpeg / imageio-ffmpeg 0.6.0
+---------------------------
+Projects: https://ffmpeg.org / https://github.com/imageio/imageio-ffmpeg
+imageio-ffmpeg wrapper: BSD-2-Clause.
+The packaged Windows binary is taken from the pinned imageio-ffmpeg wheel.
+Its exact licensing/configuration is included in ffmpeg/LICENSE-FFmpeg.txt
+(generated using ffmpeg -L) and ffmpeg/BUILD-FFmpeg.txt (ffmpeg -version).
+The pinned Windows wheel contains FFmpeg 7.1 essentials (www.gyan.dev),
+configured with --enable-gpl --enable-version3: GPL-3.0-or-later.
+Build recipes and corresponding sources: https://www.gyan.dev/ffmpeg/builds/
+Wrapper build information: https://github.com/imageio/imageio-ffmpeg/tree/v0.6.0
+FFmpeg source: https://ffmpeg.org/download.html
+
+Optional Qwen alternatives
+-------------------------
+Original models: https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507
+                 https://huggingface.co/Qwen/Qwen3.5-4B
+GGUF quantizations: unsloth repositories pinned in assets/model-catalog.json.
+License: Apache-2.0. These models are optional downloads, not bundled defaults.

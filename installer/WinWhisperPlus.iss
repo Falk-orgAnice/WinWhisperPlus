@@ -38,6 +38,7 @@ Source: "..\dist\WinWhisperPlus\*"; DestDir: "{app}"; Flags: ignoreversion recur
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"
+Name: "{autoprograms}\{#AppName} Benutzerhandbuch"; Filename: "{app}\_internal\docs\WinWhisperPlus Benutzerhandbuch.pdf"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Run]

@@ -272,6 +272,62 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
 }
 
 
+# Additional workflow labels are kept together so all new dialogs share them.
+_WORKFLOW_LABELS = {
+    "catalog_not_published": ("Für diesen Veröffentlichungskanal ist noch kein Online-Modellkatalog bereitgestellt. Eine Online-Aktualisierung ist deshalb derzeit nicht möglich. Der mitgelieferte Katalog und installierte Modelle bleiben nutzbar.", "No online model catalogue has been published for this release channel yet. Online updates are currently unavailable. The bundled catalogue and installed models remain usable.", "Nie opublikowano jeszcze katalogu modeli dla tego kanału. Aktualizacje online są obecnie niedostępne. Wbudowany katalog i zainstalowane modele pozostają dostępne."),
+    "text_model_preparing": ("Textmodell herunterladen / prüfen: {percent}%", "Downloading / verifying text model: {percent}%", "Pobieranie / weryfikacja modelu: {percent}%"),
+    "text_model_loading": ("Textmodell vorbereiten …", "Preparing text model …", "Przygotowanie modelu tekstowego …"),
+    "text_model_processing": ("Text bearbeiten / übersetzen …", "Processing / translating text …", "Przetwarzanie / tłumaczenie tekstu …"),
+    "general": ("Allgemein", "General", "Ogólne"),
+    "models": ("Modelle", "Models", "Modele"),
+    "correction_rules": ("Korrekturregeln", "Correction rules", "Reguły korekty"),
+    "correction_enabled": ("Korrekturregeln anwenden", "Apply correction rules", "Stosuj reguły korekty"),
+    "recognized": ("Erkannt", "Recognized", "Rozpoznane"),
+    "replacement": ("Ersetzen durch", "Replace with", "Zamień na"),
+    "active": ("Aktiv", "Enabled", "Aktywne"),
+    "status": ("Status", "Status", "Status"),
+    "bundled": ("mitgeliefert", "bundled", "wbudowany"),
+    "add": ("Hinzufügen", "Add", "Dodaj"),
+    "delete": ("Löschen", "Delete", "Usuń"),
+    "correction_note": ("Ganze Wörter und Wortgruppen; längste passende Regel zuerst. Zielschreibweisen bleiben bei der Übersetzung erhalten.", "Whole words and phrases; longest match wins. Target spellings are preserved in translations.", "Całe słowa i frazy; najdłuższe dopasowanie ma pierwszeństwo. Pisownia zostaje zachowana w tłumaczeniu."),
+    "correction_empty": ("Der Suchtext darf nicht leer sein.", "Source must not be empty.", "Tekst źródłowy nie może być pusty."),
+    "correction_duplicate": ("Ein Suchtext darf nur einmal vorkommen.", "Each source must be unique.", "Każdy tekst źródłowy musi być unikalny."),
+    "correction_placeholder_lost": ("Das Textmodell hat eine geschützte Bezeichnung verändert.", "The text model changed a protected name.", "Model tekstowy zmienił chronioną nazwę."),
+    "save_failed": ("Einstellungen konnten nicht gespeichert werden.", "Could not save settings.", "Nie można zapisać ustawień."),
+    "audio_open": ("Audiodatei öffnen …", "Open audio file …", "Otwórz plik audio …"),
+    "play": ("Abspielen", "Play", "Odtwórz"),
+    "stop_playback": ("Stoppen", "Stop", "Zatrzymaj"),
+    "audio_export": ("Audio exportieren", "Export audio", "Eksportuj audio"),
+    "recognize_again": ("Erneut erkennen", "Recognize again", "Rozpoznaj ponownie"),
+    "original": ("Originaltranskript", "Original transcript", "Oryginalna transkrypcja"),
+    "result": ("Ergebnis", "Result", "Wynik"),
+    "text_export": ("Text exportieren", "Export text", "Eksportuj tekst"),
+    "copy": ("Kopieren", "Copy", "Kopiuj"),
+    "source_language": ("Quellsprache", "Source language", "Język źródłowy"),
+    "auto_language": ("Automatisch erkennen", "Detect automatically", "Wykryj automatycznie"),
+    "no_translation": ("Keine Übersetzung", "No translation", "Bez tłumaczenia"),
+    "start": ("Starten", "Start", "Rozpocznij"),
+    "error": ("Fehler", "Error", "Błąd"),
+    "download": ("Herunterladen", "Download", "Pobierz"),
+    "check_updates": ("Nach Aktualisierungen suchen", "Check for updates", "Sprawdź aktualizacje"),
+    "text_model": ("Textmodell", "Text model", "Model tekstowy"),
+    "installed": ("Installiert", "Installed", "Zainstalowany"),
+    "verification_required": ("Prüfung erforderlich", "Verification required", "Wymagana weryfikacja"),
+    "available": ("Verfügbar", "Available", "Dostępny"),
+    "update_available": ("Aktualisierung verfügbar", "Update available", "Dostępna aktualizacja"),
+    "incompatible": ("Programmupdate erforderlich", "Application update required", "Wymagana aktualizacja programu"),
+    "translation_failed": ("Übersetzung fehlgeschlagen; Originaltranskript verfügbar.", "Translation failed; original transcript is available.", "Tłumaczenie nie powiodło się; oryginalna transkrypcja jest dostępna."),
+    "optimization_failed": ("Textoptimierung fehlgeschlagen; korrigiertes Original verfügbar.", "Text optimization failed; corrected original is available.", "Optymalizacja tekstu nie powiodła się; poprawiony oryginał jest dostępny."),
+    "cancelled": ("Abgebrochen", "Cancelled", "Anulowano"),
+    "complete": ("Fertig", "Complete", "Gotowe"),
+    "retry_sections": ("Fehlgeschlagene Abschnitte wiederholen", "Retry failed sections", "Ponów nieudane fragmenty"),
+    "version": ("Version", "Version", "Wersja"),
+}
+for _key, _labels in _WORKFLOW_LABELS.items():
+    for _lang, _label in zip(("de", "en", "pl"), _labels):
+        _TRANSLATIONS[_lang][_key] = _label
+
+
 def get_ui_language(settings: Settings | None) -> str:
     """Return a valid UI language code."""
     if settings is None:

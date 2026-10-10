@@ -185,3 +185,17 @@ def test_legacy_whisper_model_migrates_to_final(tmp_path) -> None:
 
     assert s.final_whisper_model == "medium"
     assert s.whisper_model == "medium"
+
+
+def test_failed_atomic_save_keeps_previous_json(monkeypatch):
+    s = _make_settings()
+    s.save()
+    previous = s._path.read_bytes()
+    s.language = "en"
+    def failed_replace(*_args):
+        raise OSError("disk failure")
+    monkeypatch.setattr("config.settings.os.replace", failed_replace)
+    with pytest.raises(OSError):
+        s.save()
+    assert s._path.read_bytes() == previous
+    assert not list(s._path.parent.glob("settings-*.tmp"))

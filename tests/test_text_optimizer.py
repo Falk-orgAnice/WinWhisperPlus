@@ -147,3 +147,17 @@ def test_model_hash_is_verified(tmp_path) -> None:
 
     optimizer._verify_model_hash()
     assert optimizer._hash_verified is True
+
+
+def test_truncated_output_is_retried_as_smaller_sections():
+    calls = []
+    def request(payload):
+        text = payload["messages"][-1]["content"]
+        calls.append(text)
+        response = _response(text)
+        response["choices"][0]["finish_reason"] = "length" if len(text) > 20 else "stop"
+        return response
+    optimizer = TextOptimizer(request_callable=request)
+    result = optimizer.optimize("First sentence. Second sentence.", options=TextOptimizationOptions(formatting=False))
+    assert result == "First sentence.\n\nSecond sentence."
+    assert len(calls) == 3

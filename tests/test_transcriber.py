@@ -139,3 +139,21 @@ def test_multipart_request_contains_wav_and_language():
     assert b"\r\n\r\nde\r\n" in body
     assert b'filename="audio.wav"' in body
     assert b"WAV" in body
+
+
+def test_server_keeps_zero_duration_words_and_maps_vad_timeline():
+    result = {"segments": [{"start": 10, "end": 12, "text": " do for you",
+              "words": [{"start": 1, "end": 1.4, "word": " do"},
+                        {"start": 1.4, "end": 1.4, "word": " for"},
+                        {"start": 1.4, "end": 2, "word": " you"}]}]}
+    segments = Transcriber._server_segments(result)
+    assert "".join(s.text for s in segments) == " do for you"
+    assert segments[0].start == 10
+    assert segments[1].start == segments[1].end
+
+
+def test_invalid_word_timestamps_preserve_complete_segment_text():
+    result = {"segments": [{"start": 0, "end": 1, "text": " all words",
+              "words": [{"start": -1, "end": -1, "word": " all"},
+                        {"start": 0, "end": 1, "word": " words"}]}]}
+    assert "".join(s.text for s in Transcriber._server_segments(result)) == " all words"

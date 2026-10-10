@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "catalog_version": "2026-10-10",
+  "models": [
+    {
+      "id": "tiny",
+      "name": "tiny",
+      "kind": "speech",
+      "repo": "ggerganov/whisper.cpp",
+      "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "filename": "ggml-tiny.bin",
+      "sha256": "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
+      "size": 77691713,
+      "minimum_app_version": "1.2.0",
+      "runtime": "whisper.cpp 1.9.4"
+    },
+    {
+      "id": "base",
+      "name": "base",
+      "kind": "speech",
+      "repo": "ggerganov/whisper.cpp",
+      "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "filename": "ggml-base.bin",
+      "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+      "size": 147951465,
+      "minimum_app_version": "1.2.0",
+      "runtime": "whisper.cpp 1.9.4"
+    },
+    {
+      "id": "small",
+      "name": "small",
+      "kind": "speech",
+      "repo": "ggerganov/whisper.cpp",
+      "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "filename": "ggml-small.bin",
+      "sha256": "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
+      "size": 487601967,
+      "minimum_app_version": "1.2.0",
+      "runtime": "whisper.cpp 1.9.4"
+    },
+    {
+      "id": "medium",
+      "name": "medium",
+      "kind": "speech",
+      "repo": "ggerganov/whisper.cpp",
+      "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "filename": "ggml-medium.bin",
+      "sha256": "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208",
+      "size": 1533763059,
+      "minimum_app_version": "1.2.0",
+      "runtime": "whisper.cpp 1.9.4"
+    },
+    {
+      "id": "large-v3",
+      "name": "large-v3",
+      "kind": "speech",
+      "repo": "ggerganov/whisper.cpp",
+      "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "filename": "ggml-large-v3.bin",
+      "sha256": "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2",
+      "size": 3095033483,
+      "minimum_app_version": "1.2.0",
+      "runtime": "whisper.cpp 1.9.4"
+    },
+    {
+      "id": "large-v3-turbo",
+      "name": "large-v3-turbo",
+      "kind": "speech",
+      "repo": "ggerganov/whisper.cpp",
+      "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "filename": "ggml-large-v3-turbo.bin",
+      "sha256": "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
+      "size": 1624555275,
+      "minimum_app_version": "1.2.0",
+      "runtime": "whisper.cpp 1.9.4"
+    },
+    {
+      "id": "large-v3-turbo-q5_0",
+      "name": "large-v3-turbo-q5_0",
+      "kind": "speech",
+      "repo": "ggerganov/whisper.cpp",
+      "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "filename": "ggml-large-v3-turbo-q5_0.bin",
+      "sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+      "size": 574041195,
+      "minimum_app_version": "1.2.0",
+      "runtime": "whisper.cpp 1.9.4"
+    },
+    {
+      "id": "silero-v6.2.0",
+      "name": "silero-v6.2.0",
+      "kind": "vad",
+      "repo": "ggml-org/whisper-vad",
+      "revision": "9ffd54a1e1ee413ddf265af9913beaf518d1639b",
+      "filename": "ggml-silero-v6.2.0.bin",
+      "sha256": "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987",
+      "size": 885098,
+      "minimum_app_version": "1.2.0",
+      "runtime": "whisper.cpp 1.9.4"
+    },
+    {
+      "id": "qwen3-4b-instruct-2507",
+      "name": "qwen3-4b-instruct-2507",
+      "kind": "text",
+      "repo": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+      "revision": "a06e946bb6b655725eafa393f4a9745d460374c9",
+      "filename": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "sha256": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+      "size": 2497281120,
+      "minimum_app_version": "1.2.0",
+      "runtime": "llama.cpp v0.6.0"
+    },
+    {
+      "id": "qwen3.5-4b",
+      "name": "qwen3.5-4b",
+      "kind": "text",
+      "repo": "unsloth/Qwen3.5-4B-GGUF",
+      "revision": "e87f176479d0855a907a41277aca2f8ee7a09523",
+      "filename": "Qwen3.5-4B-Q4_K_M.gguf",
+      "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+      "size": 2740937888,
+      "minimum_app_version": "1.2.0",
+      "runtime": "llama.cpp v0.6.0"
+    }
+  ]
+}

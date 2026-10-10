@@ -145,9 +145,43 @@ Formatting, cleanup, redaction, and translation target can be combined in the
 settings. Translation is available between the five dictation languages and
 does not run when the target is the current dictation language. The model must
 preserve names, numbers, facts, commands, and ambiguous fragments.
-If the local model cannot respond within the configured time, WinWhisperPlus
-retries once and then inserts the unmodified Whisper text with a visible notice.
-The final, inserted text is what appears in the session history.
+Long text is split at sentence/paragraph boundaries using the actual model
+tokenizer and a reserved output budget. Truncated responses are retried in smaller
+sections. Failed translations are labelled explicitly; source text remains
+available separately and is never inserted as a successful translation.
+
+### Corrections, audio import and session recordings (1.2.0)
+
+- **Settings → Correction rules:** add literal whole-word/phrase replacements,
+  e.g. `Organize → orgAnice`. Matching ignores case; the longest match wins and
+  replacements do not cascade. Empty replacements delete a matched word. Rules
+  persist atomically in settings.json. Protected names survive text processing.
+- **Open audio file:** import WAV, MP3, M4A or FLAC through local FFmpeg. Choose a
+  source language (including auto detection), speech model and optional translation.
+  File imports never paste automatically or interpret spoken keyboard commands.
+- **History:** recordings include audio and versioned original/result text. Play,
+  export, re-recognize with another model, retry failed sections, copy or explicitly
+  insert a result. Audio exists only for this session; export it before quitting.
+- **Long recordings:** audio is recorded to disk, processed in <=30-second windows
+  with a one-second overlap, pause-aware boundaries and Silero VAD. Successful
+  sections survive retries. The final partial window is always processed.
+- **Settings → Models:** check the versioned catalogue, download verified models,
+  and choose speech/text models independently. `large` still means `large-v3`.
+  Turbo and Qwen alternatives are candidates, not automatic quality upgrades.
+
+Models are stored under `%LOCALAPPDATA%\\WinWhisperPlus\\models`; temporary audio is
+under `%LOCALAPPDATA%\\WinWhisperPlus\\sessions`. Orphaned sessions are cleaned only
+when their owner process is no longer running. Exported files are untouched.
+
+Maintainers can run `scripts/refresh-model-catalog.py` to pin upstream revisions
+and checksums. Review and test candidates before publishing the generated
+`dist/model-catalog.json` as a GitHub release attachment. Until that attachment is
+published, update checks display an explicit notice that the online catalogue is
+not yet available; the bundled catalogue works offline. Version 1.2.1 downloads
+optional text models only when text processing or translation is requested, after
+speech recognition, and displays download/verification progress in the status
+window and history. Selecting a text model does not delay ordinary dictation.
+Runtime updates ship with program releases (whisper.cpp 1.9.4 / llama.cpp v0.6.0).
 
 ### Microphone troubleshooting
 

@@ -234,7 +234,10 @@ class StatusWindow(QWidget):
         if self._settings:
             self._settings.window_position_x = self.x()
             self._settings.window_position_y = self.y()
-            self._settings.save()
+            try:
+                self._settings.save()
+            except OSError:
+                self.show_message(tr("save_failed", self._settings))
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         """Display context menu on right-click."""

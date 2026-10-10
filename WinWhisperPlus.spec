@@ -2,6 +2,9 @@
 
 import os
 from pathlib import Path
+import subprocess
+import imageio_ffmpeg
+from pathlib import Path
 
 
 block_cipher = None
@@ -11,7 +14,20 @@ datas = [
     ("assets/Microphone.ico", "assets"),
     ("assets/licenses", "licenses"),
     ("VERSION", "."),
+    ("assets/model-catalog.json", "assets"),
+    ("docs/WinWhisperPlus Benutzerhandbuch.pdf", "docs"),
 ]
+
+# The Windows imageio-ffmpeg wheel contains a locally executable FFmpeg binary.
+ffmpeg_source = Path(imageio_ffmpeg.get_ffmpeg_exe())
+ffmpeg_runtime = Path("build/ffmpeg-runtime")
+ffmpeg_runtime.mkdir(parents=True, exist_ok=True)
+import shutil
+shutil.copyfile(ffmpeg_source, ffmpeg_runtime / "ffmpeg.exe")
+license_text = subprocess.check_output([str(ffmpeg_source), "-L"], stderr=subprocess.STDOUT)
+(ffmpeg_runtime / "LICENSE-FFmpeg.txt").write_bytes(license_text)
+(ffmpeg_runtime / "BUILD-FFmpeg.txt").write_bytes(subprocess.check_output([str(ffmpeg_source), "-version"], stderr=subprocess.STDOUT))
+datas.append((str(ffmpeg_runtime), "ffmpeg"))
 
 whispercpp_dir = Path(os.environ.get("WINWHISPERPLUS_WHISPERCPP_DIR", "build/whispercpp-runtime"))
 if not (whispercpp_dir / "whisper-cli.exe").is_file():
@@ -47,7 +63,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=["imageio_ffmpeg"],  # explicit ffmpeg/ copy above; avoid a duplicate wheel binary
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

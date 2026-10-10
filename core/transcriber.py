@@ -16,6 +16,9 @@ import urllib.error
 import wave
 from pathlib import Path
 from typing import Optional
+from core.audio import Segment
+from core.models import ModelManager, Cancelled
+from core.cancellation import interrupt_on_cancel
 
 import numpy as np
 
@@ -25,6 +28,9 @@ MODEL_FILENAMES = {
     "small": "ggml-small.bin",
     "medium": "ggml-medium.bin",
     "large": "ggml-large-v3.bin",
+    "large-v3": "ggml-large-v3.bin",
+    "large-v3-turbo": "ggml-large-v3-turbo.bin",
+    "large-v3-turbo-q5_0": "ggml-large-v3-turbo-q5_0.bin",
 }
 MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{filename}"
 COMPUTE_DEVICE_AUTO = "auto"
@@ -77,6 +83,7 @@ class Transcriber:
     ) -> None:
         self._model_name = model_name
         self._model_path: Path | None = None
+        self._model_stat = None
         self._executable_path = Path(executable_path) if executable_path else self._find_executable()
         app_data = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home())
         self._model_dir = Path(model_dir) if model_dir else Path(app_data) / "WinWhisperPlus" / "models"
@@ -86,6 +93,7 @@ class Transcriber:
         self._server_process: subprocess.Popen | None = None
         self._server_port: int | None = None
         self._server_model_path: Path | None = None
+        self._vad_path: Path | None = None
         self.set_compute_device(compute_device)
 
     # ------------------------------------------------------------------
@@ -97,6 +105,7 @@ class Transcriber:
         with self._lock:
             if self._model_path is None:
                 self._model_path = self._load_model()
+                self._remember_model_stat()
             if self._keep_model_loaded:
                 self._ensure_server()
 
@@ -124,6 +133,7 @@ class Transcriber:
         with self._lock:
             if self._model_path is None:
                 self._model_path = self._load_model()
+                self._remember_model_stat()
             if self._keep_model_loaded:
                 return self._run_server(audio, language)
             return self._run_cli(audio, language)
@@ -139,10 +149,22 @@ class Transcriber:
     def set_model(self, model_name: str) -> None:
         """Switch model (invalidates any cached model)."""
         with self._lock:
-            if self._model_name != model_name:
-                self._stop_server()
+            if self._model_name == model_name:
+                manager = ModelManager(self._model_dir)
+                activated = manager.installed_spec("large-v3" if model_name == "large" else model_name)
+                desired = manager.path(activated) if activated else self._model_path
+                stat = (desired.stat().st_size, desired.stat().st_mtime_ns) if desired and desired.is_file() else None
+                if desired == self._model_path and (self._model_stat is None or stat == self._model_stat):
+                    return
+            self._stop_server()
             self._model_name = model_name
             self._model_path = None
+            self._model_stat = None
+
+    def _remember_model_stat(self):
+        if self._model_path and self._model_path.is_file():
+            stat = self._model_path.stat()
+            self._model_stat = (stat.st_size, stat.st_mtime_ns)
 
     def set_compute_device(self, compute_device: str) -> None:
         """Select automatic Vulkan, one Vulkan device, or CPU-only inference."""
@@ -167,22 +189,113 @@ class Transcriber:
 
     def _load_model(self) -> Path:
         """Download the selected whisper.cpp GGML model once, if necessary."""
-        filename = MODEL_FILENAMES.get(self._model_name)
-        if filename is None:
+        manager = ModelManager(self._model_dir)
+        model_id = "large-v3" if self._model_name == "large" else self._model_name
+        if model_id not in manager.catalog or manager.catalog[model_id].kind != "speech":
             raise ValueError(f"Unsupported whisper.cpp model: {self._model_name}")
-        self._model_dir.mkdir(parents=True, exist_ok=True)
-        model_path = self._model_dir / filename
-        if model_path.is_file() and model_path.stat().st_size > 0:
-            return model_path
+        return manager.ensure(model_id)
 
-        temporary_path = model_path.with_suffix(".part")
-        try:
-            urllib.request.urlretrieve(MODEL_URL.format(filename=filename), temporary_path)
-            temporary_path.replace(model_path)
-        except Exception:
-            temporary_path.unlink(missing_ok=True)
-            raise
-        return model_path
+    def transcribe_segments(self, audio, language=None, *, cancel=None, no_context=False) -> tuple[list[Segment], str | None]:
+        """Timestamped, VAD-enabled inference for one bounded job section."""
+        if cancel and cancel.is_set():
+            raise Cancelled("Cancelled")
+        if len(audio) == 0 or float(np.sqrt(np.mean(np.asarray(audio) ** 2))) < SILENCE_RMS_THRESHOLD:
+            return [], language
+        with self._lock:
+            manager = ModelManager(self._model_dir)
+            if self._model_path is None:
+                self._model_path = manager.ensure("large-v3" if self._model_name == "large" else self._model_name, cancel)
+                self._remember_model_stat()
+            if self._vad_path is None:
+                self._vad_path = manager.ensure("silero-v6.2.0", cancel)
+                self._stop_server()  # a preloaded server must restart with VAD
+            if self._keep_model_loaded:
+                with interrupt_on_cancel(cancel, self._stop_server):
+                    try:
+                        result = self._run_server(audio, language, detailed=True, no_context=no_context)
+                    except Exception:
+                        if cancel and cancel.is_set():
+                            raise Cancelled("Cancelled")
+                        raise
+                # Verbose server word timestamps are available on current runtimes.
+                segments = self._server_segments(result)
+                detected = result.get("language", language)
+                detected = {"german": "de", "english": "en", "polish": "pl", "french": "fr", "dutch": "nl"}.get(str(detected).lower(), detected)
+                # Unknown full language names must not become invalid ISO codes
+                # on the next section. Keep auto-detection for such sources.
+                if detected is not None and not re.fullmatch(r"[a-z]{2,3}", str(detected)):
+                    detected = None
+                return segments, detected
+            return self._run_cli_segments(audio, language, cancel, no_context=no_context)
+
+    @staticmethod
+    def _server_segments(result):
+        segments = []
+        for section in result.get("segments", []):
+            words = section.get("words", [])
+            # Zero-duration tokens contain real words too; never drop them.
+            valid = all(w.get("start", -1) >= 0 and w.get("end", -1) >= w.get("start", -1) for w in words)
+            joined = "".join(str(w.get("word", "")) for w in words)
+            if words and valid and joined.strip() == str(section["text"]).strip():
+                # VAD maps segment times to original audio; token times may still
+                # be in the compressed speech timeline. Align each segment.
+                shift = max(0, float(section["start"]) - float(words[0]["start"]))
+                for word in words:
+                    start = min(float(section["end"]), float(word["start"]) + shift)
+                    end = min(float(section["end"]), float(word["end"]) + shift)
+                    segments.append(Segment(start, max(start, end), str(word["word"])))
+            else:
+                segments.append(Segment(float(section["start"]), float(section["end"]), str(section["text"])))
+        return segments
+
+    def _run_cli_segments(self, audio, language, cancel, *, no_context=False):
+        if not self._executable_path.is_file():
+            raise RuntimeError("whisper.cpp runtime missing; build a release first")
+        with tempfile.TemporaryDirectory(prefix="winwhisperplus-") as directory:
+            audio_path = Path(directory) / "audio.wav"
+            output = Path(directory) / "transcript"
+            self._write_wav(audio_path, audio)
+            command = [str(self._executable_path), "--model", str(self._model_path), "--file", str(audio_path),
+                       "--language", language or "auto", "--output-json-full", "--output-file", str(output),
+                       "--max-context", "0", "--vad", "--vad-model", str(self._vad_path)]
+            if no_context:
+                command.extend(["--temperature", "0.2"])
+            self._append_compute_device_arguments(command)
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            try:
+                while True:
+                    if cancel and cancel.is_set():
+                        raise Cancelled("Cancelled")
+                    try:
+                        stdout, stderr = process.communicate(timeout=0.2)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+                if process.returncode:
+                    raise RuntimeError(stderr.decode("utf-8", errors="replace")[-8192:])
+                result = json.loads(output.with_suffix(".json").read_text(encoding="utf-8"))
+                return self._cli_segments(result), result.get("result", {}).get("language", language)
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.communicate(timeout=5)
+
+    @staticmethod
+    def _cli_segments(result):
+        sections = []
+        for s in result.get("transcription", []):
+            tokens = [t for t in s.get("tokens", []) if not str(t.get("text", "")).startswith("[_")]
+            words = []
+            for token in tokens:
+                offsets = token.get("offsets", {})
+                words.append({"start": offsets.get("from", -1000) / 1000,
+                              "end": offsets.get("to", -1000) / 1000,
+                              "word": token.get("text", "")})
+            sections.append({"start": s["offsets"]["from"] / 1000,
+                             "end": s["offsets"]["to"] / 1000,
+                             "text": s["text"], "words": words})
+        return Transcriber._server_segments({"segments": sections})
 
     def _run_cli(self, audio: np.ndarray, language: Optional[str]) -> str:
         if not self._executable_path.is_file():
@@ -246,8 +359,9 @@ class Transcriber:
             "--model", str(self._model_path),
             "--host", "127.0.0.1",
             "--port", str(port),
-            "--no-timestamps",
         ]
+        if self._vad_path:
+            command.extend(["--vad", "--vad-model", str(self._vad_path)])
         self._append_compute_device_arguments(command)
         self._server_process = subprocess.Popen(
             command,
@@ -258,9 +372,9 @@ class Transcriber:
         self._server_port = port
         self._server_model_path = self._model_path
 
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
-            if self._server_process.poll() is not None:
+            if self._server_process is None or self._server_process.poll() is not None:
                 self._stop_server()
                 raise RuntimeError("whisper.cpp server could not load the model")
             try:
@@ -271,13 +385,13 @@ class Transcriber:
         self._stop_server()
         raise RuntimeError("Timed out while loading the whisper.cpp model server")
 
-    def _run_server(self, audio: np.ndarray, language: Optional[str]) -> str:
+    def _run_server(self, audio: np.ndarray, language: Optional[str], *, detailed=False, no_context=False):
         self._ensure_server()
         with tempfile.TemporaryDirectory(prefix="winwhisperplus-") as temporary_dir:
             audio_path = Path(temporary_dir) / "audio.wav"
             self._write_wav(audio_path, audio)
             body, content_type = self._multipart_request(
-                audio_path.read_bytes(), language or "auto"
+                audio_path.read_bytes(), language or "auto", detailed=detailed, no_context=no_context
             )
             request = urllib.request.Request(
                 self._server_url("/inference"),
@@ -290,7 +404,7 @@ class Transcriber:
                     result = json.loads(response.read().decode("utf-8"))
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
                 raise RuntimeError(f"whisper.cpp server transcription failed: {exc}") from exc
-            return str(result.get("text", "")).strip()
+            return result if detailed else str(result.get("text", "")).strip()
 
     def _append_compute_device_arguments(self, command: list[str]) -> None:
         if self._compute_device == COMPUTE_DEVICE_CPU:
@@ -299,10 +413,13 @@ class Transcriber:
             command.extend(["--device", self._compute_device.removeprefix("gpu:")])
 
     @staticmethod
-    def _multipart_request(audio_data: bytes, language: str) -> tuple[bytes, str]:
+    def _multipart_request(audio_data: bytes, language: str, *, detailed=False, no_context=False) -> tuple[bytes, str]:
         boundary = "----WinWhisperPlusBoundary"
         chunks: list[bytes] = []
-        for name, value in (("language", language), ("response_format", "json")):
+        fields = [("language", language), ("response_format", "verbose_json" if detailed else "json")]
+        if no_context:
+            fields.append(("temperature", "0.2"))
+        for name, value in fields:
             chunks.extend([
                 f"--{boundary}\r\n".encode(),
                 f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode(),

@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
+    QTabWidget, QScrollArea, QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView,
 )
 from PyQt6.QtGui import QKeySequence
 
@@ -33,7 +34,7 @@ from utils.resources import app_version
 if TYPE_CHECKING:
     pass
 
-WHISPER_MODELS = ["tiny", "base", "small", "medium", "large"]
+WHISPER_MODELS = ["tiny", "base", "small", "medium", "large", "large-v3-turbo", "large-v3-turbo-q5_0"]
 
 
 class HotkeyEdit(QLineEdit):
@@ -78,8 +79,11 @@ class SettingsWindow(QDialog):
     def __init__(self, settings: Settings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._settings = settings
+        self._original_settings = settings
+        self._settings = settings.snapshot()
         self.setWindowTitle(tr("settings_title", self._settings))
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(620)
+        self.resize(780, 680)
         self._build_ui()
         self._populate()
 
@@ -89,6 +93,14 @@ class SettingsWindow(QDialog):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
+        self._tabs = QTabWidget()
+        root.addWidget(self._tabs)
+        general = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(general)
+        self._tabs.addTab(scroll, tr("general", self._settings))
+        content = QVBoxLayout(general)
 
         # --- Hotkeys ---------------------------------------------------
         self._hk_group = QGroupBox()
@@ -100,20 +112,20 @@ class SettingsWindow(QDialog):
 
         self._hk_lang = HotkeyEdit()
         hk_form.addRow("", self._hk_lang)
-        root.addWidget(self._hk_group)
+        content.addWidget(self._hk_group)
 
         # --- Language --------------------------------------------------
         self._lang_group = QGroupBox()
         lang_layout = QHBoxLayout(self._lang_group)
         self._lang_combo = QComboBox()
         lang_layout.addWidget(self._lang_combo)
-        root.addWidget(self._lang_group)
+        content.addWidget(self._lang_group)
 
         self._ui_lang_group = QGroupBox()
         ui_lang_layout = QHBoxLayout(self._ui_lang_group)
         self._ui_lang_combo = QComboBox()
         ui_lang_layout.addWidget(self._ui_lang_combo)
-        root.addWidget(self._ui_lang_group)
+        content.addWidget(self._ui_lang_group)
 
         # --- Microphone ------------------------------------------------
         self._mic_group = QGroupBox()
@@ -124,7 +136,7 @@ class SettingsWindow(QDialog):
         self._refresh_btn.setFixedWidth(30)
         self._refresh_btn.clicked.connect(self._refresh_mics)
         mic_layout.addWidget(self._refresh_btn)
-        root.addWidget(self._mic_group)
+        content.addWidget(self._mic_group)
 
         # --- Models ----------------------------------------------------
         self._model_group = QGroupBox()
@@ -150,7 +162,10 @@ class SettingsWindow(QDialog):
 
         self._model_note = QLabel()
         model_layout.addWidget(self._model_note)
-        root.addWidget(self._model_group)
+        self._model_page = QWidget()
+        self._model_layout = QVBoxLayout(self._model_page)
+        self._model_layout.addWidget(self._model_group)
+        self._tabs.addTab(self._model_page, tr("models", self._settings))
 
         # --- Compute device -------------------------------------------
         self._compute_group = QGroupBox()
@@ -159,19 +174,29 @@ class SettingsWindow(QDialog):
         compute_layout.addWidget(self._compute_label)
         self._compute_combo = QComboBox()
         compute_layout.addWidget(self._compute_combo)
-        root.addWidget(self._compute_group)
+        self._model_layout.addWidget(self._compute_group)
         self._keep_model_loaded_cb = QCheckBox()
-        root.addWidget(self._keep_model_loaded_cb)
+        self._model_layout.addWidget(self._keep_model_loaded_cb)
+        text_model_row = QHBoxLayout()
+        text_model_row.addWidget(QLabel(tr("text_model", self._settings)))
+        self._text_model_combo = QComboBox()
+        text_model_row.addWidget(self._text_model_combo)
+        self._model_layout.addLayout(text_model_row)
+        from gui.model_manager import ModelManagerWidget
+        self._model_manager = ModelManagerWidget(self._settings, self)
+        self._model_manager.changed.connect(self._refresh_text_models)
+        self._model_layout.addWidget(self._model_manager)
+        self._refresh_text_models()
 
         # --- Auto insert -----------------------------------------------
         self._auto_insert_cb = QCheckBox()
-        root.addWidget(self._auto_insert_cb)
+        content.addWidget(self._auto_insert_cb)
 
         self._live_transcription_cb = QCheckBox()
-        root.addWidget(self._live_transcription_cb)
+        content.addWidget(self._live_transcription_cb)
 
         self._emoji_mode_cb = QCheckBox()
-        root.addWidget(self._emoji_mode_cb)
+        content.addWidget(self._emoji_mode_cb)
 
         # --- Local text optimization ---------------------------------
         self._text_optimization_group = QGroupBox()
@@ -199,7 +224,8 @@ class SettingsWindow(QDialog):
         self._text_optimization_note = QLabel()
         self._text_optimization_note.setWordWrap(True)
         text_optimization_layout.addWidget(self._text_optimization_note)
-        root.addWidget(self._text_optimization_group)
+        content.addWidget(self._text_optimization_group)
+        self._build_corrections()
 
         # --- Buttons ---------------------------------------------------
         btn_layout = QHBoxLayout()
@@ -215,6 +241,68 @@ class SettingsWindow(QDialog):
         btn_layout.addWidget(self._cancel_btn)
         root.addLayout(btn_layout)
         self.retranslate_ui()
+
+    def _build_corrections(self) -> None:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        self._rules_enabled = QCheckBox(tr("correction_enabled", self._settings))
+        self._rules_enabled.setChecked(self._settings.correction_rules_enabled)
+        layout.addWidget(self._rules_enabled)
+        self._rules_table = QTableWidget(0, 3)
+        self._rules_table.setHorizontalHeaderLabels([tr(k, self._settings) for k in ("active", "recognized", "replacement")])
+        header = self._rules_table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self._rules_table)
+        buttons = QHBoxLayout()
+        add = QPushButton(tr("add", self._settings))
+        add.clicked.connect(lambda: self._add_rule())
+        remove = QPushButton(tr("delete", self._settings))
+        remove.clicked.connect(self._remove_rules)
+        buttons.addWidget(add)
+        buttons.addWidget(remove)
+        layout.addLayout(buttons)
+        note = QLabel(tr("correction_note", self._settings))
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        self._tabs.addTab(page, tr("correction_rules", self._settings))
+        for rule in self._settings.correction_rules:
+            self._add_rule(rule)
+
+    def _add_rule(self, rule=None) -> None:
+        rule = rule or {"source": "", "target": "", "enabled": True}
+        row = self._rules_table.rowCount()
+        self._rules_table.insertRow(row)
+        self._rules_table.setItem(row, 1, QTableWidgetItem(rule["source"]))
+        self._rules_table.setItem(row, 2, QTableWidgetItem(rule["target"]))
+        item = QTableWidgetItem()
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Checked if rule["enabled"] else Qt.CheckState.Unchecked)
+        self._rules_table.setItem(row, 0, item)
+
+    def _remove_rules(self) -> None:
+        for row in sorted({i.row() for i in self._rules_table.selectedIndexes()}, reverse=True):
+            self._rules_table.removeRow(row)
+
+    def _refresh_text_models(self):
+        selected = self._text_model_combo.currentData() or self._settings.text_model
+        self._text_model_combo.clear()
+        self._text_model_combo.addItem(f"Qwen3-4B ({tr('bundled', self._settings)})", "bundled-qwen3-4b")
+        for model in self._model_manager.manager.catalog.values():
+            if model.kind == "text":
+                self._text_model_combo.addItem(model.name, model.id)
+            elif model.kind == "speech" and model.id != "large-v3" and self._final_model_combo.findText(model.id) < 0:
+                self._final_model_combo.addItem(model.id)
+        if self._text_model_combo.findData(selected) < 0:
+            self._text_model_combo.addItem(selected, selected)
+        self._text_model_combo.setCurrentIndex(self._text_model_combo.findData(selected))
+
+    def done(self, result):
+        if hasattr(self, "_model_manager"):
+            self._model_manager.stop()
+        super().done(result)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -346,8 +434,8 @@ class SettingsWindow(QDialog):
         self._text_formatting_cb.setEnabled(enabled)
         self._text_cleanup_cb.setEnabled(enabled)
         self._text_redact_cb.setEnabled(enabled)
-        self._text_translation_cb.setEnabled(enabled)
-        translation_enabled = enabled and self._text_translation_cb.isChecked()
+        self._text_translation_cb.setEnabled(True)
+        translation_enabled = self._text_translation_cb.isChecked()
         self._text_translation_target_label.setEnabled(translation_enabled)
         self._text_translation_target_combo.setEnabled(translation_enabled)
         self._text_optimization_note.setEnabled(enabled)
@@ -382,6 +470,25 @@ class SettingsWindow(QDialog):
                 break
 
     def _save(self) -> None:
+        for model_id in (self._final_model_combo.currentText(), self._text_model_combo.currentData()):
+            if model_id == "bundled-qwen3-4b":
+                continue
+            selected = self._model_manager.manager.catalog.get("large-v3" if model_id == "large" else model_id)
+            activated = self._model_manager.manager.installed_spec(selected.id) if selected else None
+            if selected is None or not (selected.compatible or (activated and activated.compatible)):
+                QMessageBox.warning(self, tr("models", self._settings), tr("incompatible", self._settings))
+                return
+        try:
+            self._settings.correction_rules = [
+                {"source": self._rules_table.item(row, 1).text(),
+                 "target": self._rules_table.item(row, 2).text(),
+                 "enabled": self._rules_table.item(row, 0).checkState() == Qt.CheckState.Checked}
+                for row in range(self._rules_table.rowCount())
+            ]
+        except ValueError as exc:
+            QMessageBox.warning(self, tr("correction_rules", self._settings), tr(str(exc), self._settings))
+            return
+        self._settings.correction_rules_enabled = self._rules_enabled.isChecked()
         self._settings.hotkey_record = self._hk_record.text().strip()
         self._settings.hotkey_language = self._hk_lang.text().strip()
         self._settings.language = self._lang_combo.currentData()
@@ -390,6 +497,7 @@ class SettingsWindow(QDialog):
         self._settings.microphone_name = None if self._mic_combo.currentIndex() == 0 else self._mic_combo.currentText()
         self._settings.live_whisper_model = self._live_model_combo.currentText()
         self._settings.final_whisper_model = self._final_model_combo.currentText()
+        self._settings.text_model = self._text_model_combo.currentData()
         self._settings.compute_device = self._compute_combo.currentData()
         self._settings.keep_model_loaded = self._keep_model_loaded_cb.isChecked()
         self._settings.auto_insert = self._auto_insert_cb.isChecked()
@@ -401,6 +509,12 @@ class SettingsWindow(QDialog):
         self._settings.text_optimization_redact_enabled = self._text_redact_cb.isChecked()
         self._settings.text_translation_enabled = self._text_translation_cb.isChecked()
         self._settings.text_translation_target_language = self._text_translation_target_combo.currentData()
-        self._settings.save()
+        try:
+            self._settings.save()
+        except OSError as exc:
+            QMessageBox.warning(self, tr("settings_title", self._settings), tr("save_failed", self._settings) + "\n" + str(exc))
+            return
+        self._original_settings._data = self._settings.snapshot()._data
+        self._settings = self._original_settings
         self.accept()
         QTimer.singleShot(0, lambda: self.settings_saved.emit(self._settings))

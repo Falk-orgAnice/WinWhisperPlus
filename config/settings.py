@@ -5,6 +5,8 @@ Persists configuration to a JSON file in the user's AppData directory.
 
 import json
 import os
+import copy
+import tempfile
 from pathlib import Path
 
 DEFAULT_SETTINGS = {
@@ -35,6 +37,9 @@ DEFAULT_SETTINGS = {
     "text_optimization_redact_enabled": False,
     "text_translation_enabled": False,
     "text_translation_target_language": "en",
+    "correction_rules_enabled": True,
+    "correction_rules": [],
+    "text_model": "bundled-qwen3-4b",
 }
 
 LANGUAGES = {
@@ -68,7 +73,7 @@ class Settings:
 
     def __init__(self) -> None:
         self._path = _config_path()
-        self._data: dict = dict(DEFAULT_SETTINGS)
+        self._data: dict = copy.deepcopy(DEFAULT_SETTINGS)
         self._load()
 
     # ------------------------------------------------------------------
@@ -81,6 +86,8 @@ class Settings:
             try:
                 with open(load_path, "r", encoding="utf-8") as fh:
                     stored = json.load(fh)
+                if not isinstance(stored, dict):
+                    return
                 if "final_whisper_model" not in stored and "whisper_model" in stored:
                     stored["final_whisper_model"] = stored["whisper_model"]
                 # Migrate the former exclusive optimization profile to the
@@ -103,11 +110,53 @@ class Settings:
                 pass  # fall back to defaults
 
     def save(self) -> None:
+        """Commit atomically; callers must surface persistence errors."""
+        temporary = None
         try:
-            with open(self._path, "w", encoding="utf-8") as fh:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self._path.parent,
+                                             prefix="settings-", suffix=".tmp", delete=False) as fh:
+                temporary = Path(fh.name)
                 json.dump(self._data, fh, indent=2, ensure_ascii=False)
-        except OSError:
-            pass
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(temporary, self._path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def snapshot(self) -> Settings:
+        result = copy.copy(self)
+        result._data = copy.deepcopy(self._data)
+        return result
+
+    @property
+    def correction_rules_enabled(self) -> bool:
+        return bool(self._data["correction_rules_enabled"])
+
+    @correction_rules_enabled.setter
+    def correction_rules_enabled(self, value: bool) -> None:
+        self._data["correction_rules_enabled"] = bool(value)
+
+    @property
+    def correction_rules(self) -> list[dict]:
+        from core.corrections import validate_rules
+        try:
+            return validate_rules(copy.deepcopy(self._data["correction_rules"]))
+        except (ValueError, TypeError, AttributeError):
+            return []
+
+    @correction_rules.setter
+    def correction_rules(self, value: list[dict]) -> None:
+        from core.corrections import validate_rules
+        self._data["correction_rules"] = validate_rules(value)
+
+    @property
+    def text_model(self) -> str:
+        return self._data["text_model"]
+
+    @text_model.setter
+    def text_model(self, value: str) -> None:
+        self._data["text_model"] = value
 
     # ------------------------------------------------------------------
     # Property accessors

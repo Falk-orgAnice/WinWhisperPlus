@@ -41,6 +41,10 @@ class FakeRecorder:
             else np.zeros(16_000, dtype=np.float32)
         )
         self._recording = False
+        self._audio_path = None
+
+    def set_audio_path(self, path):
+        self._audio_path = path
 
     # -- Public API (mirrors Recorder) --------------------------------------
 
@@ -55,8 +59,11 @@ class FakeRecorder:
             # has data to process immediately.
             self._on_chunk(self._audio_data.copy())
 
-    def stop(self) -> np.ndarray:
+    def stop(self, *, read_audio=True) -> np.ndarray:
         self._recording = False
+        if self._audio_path is not None:
+            from core.transcriber import Transcriber
+            Transcriber._write_wav(self._audio_path, self._audio_data)
         return self._audio_data.copy()
 
 
@@ -110,6 +117,10 @@ class FakeTranscriber:
 
     def transcribe_chunk(self, audio: np.ndarray, language: Optional[str] = None) -> str:
         return self.transcribe(audio, language=language)
+
+    def transcribe_segments(self, audio, language=None, **kwargs):
+        from core.audio import Segment
+        return [Segment(0, len(audio) / 16000, self.transcribe(audio, language))], language or "de"
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +176,7 @@ class FakeTextOptimizer:
         self.compute_device = "auto"
         self.closed = False
 
-    def optimize(self, text: str, *, options, language: str | None = None) -> str:
+    def optimize(self, text: str, *, options, language: str | None = None, cancel=None) -> str:
         self.calls.append((text, options, language))
         if self.raise_exc is not None:
             raise self.raise_exc
@@ -173,6 +184,9 @@ class FakeTextOptimizer:
 
     def set_compute_device(self, compute_device: str) -> None:
         self.compute_device = compute_device
+
+    def set_model(self, model_id):
+        self.model_id = model_id
 
     def close(self) -> None:
         self.closed = True

@@ -112,6 +112,7 @@ class TrayIcon(QObject):
     toggle_recording_requested = pyqtSignal()
     open_settings_requested = pyqtSignal()
     open_history_requested = pyqtSignal()
+    open_audio_requested = pyqtSignal()
     open_statistics_requested = pyqtSignal()
     quit_requested = pyqtSignal()
 
@@ -154,6 +155,8 @@ class TrayIcon(QObject):
         """Refresh all translated tray strings."""
         if self._history_action is not None:
             self._history_action.setText(tr("history", self._settings))
+        if getattr(self, "_audio_action", None) is not None:
+            self._audio_action.setText(tr("audio_open", self._settings))
         if self._statistics_action is not None:
             self._statistics_action.setText(tr("statistics", self._settings))
         if self._settings_action is not None:
@@ -176,6 +179,8 @@ class TrayIcon(QObject):
 
         self._history_action = menu.addAction(tr("history", self._settings))
         self._history_action.triggered.connect(self.open_history_requested)
+        self._audio_action = menu.addAction(tr("audio_open", self._settings))
+        self._audio_action.triggered.connect(self.open_audio_requested)
 
         self._statistics_action = menu.addAction(tr("statistics", self._settings))
         self._statistics_action.triggered.connect(self.open_statistics_requested)

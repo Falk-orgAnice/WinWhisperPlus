@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from config.localization import localized_spoken_language_name, tr
 from config.settings import Settings
@@ -34,6 +34,10 @@ from core.statistics import StatisticsStore
 from core.text_inserter import insert_text, press_enter, replace_text
 from core.text_optimizer import TextOptimizationOptions, TextOptimizer
 from core.transcriber import Transcriber
+from core.corrections import apply_corrections, protect_names, restore_names
+from core.session import SessionStore, ResultVersion
+from core.pipeline import run_job
+from core.audio import convert_audio, wav_duration
 from gui.history_window import HistoryWindow
 from gui.statistics_window import StatisticsWindow
 from gui.settings_window import SettingsWindow
@@ -84,6 +88,8 @@ class Application(QObject):
     _open_statistics_requested = pyqtSignal()
     _toggle_recording_requested = pyqtSignal()
     _cycle_language_requested = pyqtSignal()
+    _job_finished = pyqtSignal(object, object, object, bool, bool)
+    _job_progress = pyqtSignal(object)
 
     def __init__(
         self,
@@ -133,6 +139,16 @@ class Application(QObject):
         self._hotkey_mgr = HotkeyManager()
         self._history: list[str] = []  # Session history of recognized texts (max 50)
         self._max_history = 50
+        self._session = SessionStore() if not test_mode else None
+        self._recording_job = None
+        self._recording_settings = None
+        self._job_lock = threading.Lock()
+        self._job_threads = []
+        self._closing = False
+        self._recording_health = QTimer(self)
+        self._recording_health.timeout.connect(self._check_recording_health)
+        if not test_mode:
+            self._recording_health.start(250)
         self._audio_chunk_queue: queue.Queue = queue.Queue(maxsize=8)
         self._insert_queue: queue.Queue = queue.Queue()
         self._live_stop_requested = threading.Event()
@@ -199,10 +215,34 @@ class Application(QObject):
             self._status_changed.emit("ready")
 
     def shutdown(self) -> None:
+        if self._closing:
+            return
+        self._closing = True
+        self._recording_health.stop()
+        if not self._test_mode:
+            self._history_window.stop_playback()
+            QApplication.processEvents()
+        if self._session is not None:
+            for job in self._session.jobs:
+                job.cancel.set()
         self._hotkey_mgr.unregister_all()
         self._live_stop_requested.set()
         if self._recorder.is_recording:
-            self._recorder.stop()
+            try:
+                self._recorder.stop(read_audio=False) if self._session is not None else self._recorder.stop()
+            except Exception:
+                LOGGER.exception("Failed to stop microphone during shutdown")
+        if self._session is not None:
+            self._closing = True
+            for job in self._session.jobs:
+                job.cancel.set()
+            for thread in self._job_threads:
+                thread.join(timeout=10)
+            if not any(t.is_alive() for t in self._job_threads):
+                try:
+                    self._session.close()
+                except OSError:
+                    LOGGER.exception("Session cleanup deferred until next startup")
         self._transcriber_live.close()
         self._transcriber_final.close()
         self._text_optimizer.close()
@@ -222,6 +262,7 @@ class Application(QObject):
             self._tray.open_history_requested.connect(self._open_history)
             self._tray.open_statistics_requested.connect(self._open_statistics)
             self._tray.quit_requested.connect(self._quit)
+            self._tray.open_audio_requested.connect(self._open_audio)
 
             # Connect StatusWindow signals to same handlers as TrayIcon
             self._status_window.toggle_recording_requested.connect(self._toggle_recording)
@@ -231,6 +272,10 @@ class Application(QObject):
             self._status_window.quit_requested.connect(self._quit)
 
             self._history_window.text_selected.connect(self._on_history_text_selected)
+            self._history_window.open_audio_requested.connect(self._open_audio)
+            self._history_window.recognize_requested.connect(self._recognize_job)
+            self._history_window.retry_requested.connect(self._retry_job)
+            self._history_window.delete_requested.connect(self._delete_job)
 
         self._status_changed.connect(self._on_status_changed)
         self._transcription_done.connect(self._on_transcription_done)
@@ -239,6 +284,8 @@ class Application(QObject):
         self._partial_transcription_done.connect(self._on_partial_transcription_done)
         self._model_preload_started.connect(self._on_model_preload_started)
         self._model_preload_finished.connect(self._on_model_preload_finished)
+        self._job_finished.connect(self._on_job_finished)
+        self._job_progress.connect(self._on_job_progress)
 
     # ------------------------------------------------------------------
     # Settings
@@ -258,14 +305,21 @@ class Application(QObject):
                 settings.hotkey_language,
                 self._cycle_language_requested.emit,
             )
-        self._recorder = self._build_recorder(settings)
+        if not self._recorder.is_recording:
+            self._recorder = self._build_recorder(settings)
         self._transcriber_live.set_model(settings.live_whisper_model)
-        self._transcriber_final.set_model(settings.final_whisper_model)
+        jobs_running = self._session is not None and any(j.running for j in self._session.jobs)
+        if not jobs_running:
+            self._transcriber_final.set_model(settings.final_whisper_model)
         self._transcriber_live.set_compute_device(settings.compute_device)
-        self._transcriber_final.set_compute_device(settings.compute_device)
+        if not jobs_running:
+            self._transcriber_final.set_compute_device(settings.compute_device)
         self._transcriber_live.set_keep_model_loaded(settings.keep_model_loaded)
-        self._transcriber_final.set_keep_model_loaded(settings.keep_model_loaded)
-        self._text_optimizer.set_compute_device(settings.compute_device)
+        if not jobs_running:
+            self._transcriber_final.set_keep_model_loaded(settings.keep_model_loaded)
+            self._text_optimizer.set_compute_device(settings.compute_device)
+            if hasattr(self._text_optimizer, "set_model"):
+                self._text_optimizer.set_model(settings.text_model)
         LOGGER.info(
             "Settings angewendet | live_enabled=%s live_model=%s final_model=%s text_optimization=%s formatting=%s cleanup=%s redact=%s translation=%s target=%s compute_device=%s keep_model_loaded=%s",
             settings.live_transcription_enabled,
@@ -294,7 +348,8 @@ class Application(QObject):
         QTimer.singleShot(delay_ms, self._preload_models_async)
 
     def _preload_models_async(self) -> None:
-        threading.Thread(target=self._load_live_model, daemon=True).start()
+        if self._settings.live_transcription_enabled:
+            threading.Thread(target=self._load_live_model, daemon=True).start()
         threading.Thread(target=self._load_final_model, daemon=True).start()
 
     def _load_live_model(self) -> None:
@@ -309,6 +364,8 @@ class Application(QObject):
             self._model_preload_finished.emit("live", False)
 
     def _load_final_model(self) -> None:
+        if self._session is not None and any(j.running for j in self._session.jobs):
+            return
         self._model_preload_started.emit("final")
         try:
             LOGGER.info("Preload Final-Modell gestartet | model=%s", self._settings.final_whisper_model)
@@ -346,20 +403,28 @@ class Application(QObject):
             current_name = by_index[requested_index]
             if settings.microphone_name != current_name:
                 settings.microphone_name = current_name
-                settings.save()
+                self._save_settings(settings)
             return requested_index
 
         if requested_name:
             for mic in microphones:
                 if mic["name"] == requested_name:
                     settings.microphone_index = mic["index"]
-                    settings.save()
+                    self._save_settings(settings)
                     return mic["index"]
 
         settings.microphone_index = None
         settings.microphone_name = None
-        settings.save()
+        self._save_settings(settings)
         return None
+
+    def _save_settings(self, settings):
+        try:
+            settings.save()
+        except OSError:
+            LOGGER.exception("Settings could not be saved")
+            if not self._test_mode:
+                self._status_window.show_message(tr("save_failed", settings))
 
     def _open_settings(self) -> None:
         dlg = SettingsWindow(self._settings)
@@ -378,6 +443,11 @@ class Application(QObject):
             self._start_recording()
 
     def _start_recording(self) -> None:
+        if self._closing:
+            return
+        if self._session is not None and any(j.running for j in self._session.jobs):
+            self._open_history()
+            return
         if not self._test_mode:
             # Ensure window is visible when recording starts
             self._status_window.raise_()
@@ -389,10 +459,45 @@ class Application(QObject):
         self._reset_live_session()
         if self._settings.live_transcription_enabled:
             self._start_live_worker(self._settings.language)
-        self._recorder.start()
+        if self._session is not None:
+            self._recording_job = self._session.create()
+            self._recording_settings = self._settings.snapshot()
+            self._recorder.set_audio_path(self._recording_job.audio_path)
+        try:
+            self._recorder.start()
+        except Exception as exc:
+            if self._recording_job is not None:
+                self._recording_job.versions.append(ResultVersion(self._recording_settings.final_whisper_model,
+                                                                 self._recording_settings.language, None,
+                                                                 status="failed", error=str(exc)))
+                self._recording_job = None
+            self._on_transcription_failed(str(exc))
+            return
         self._status_changed.emit("recording")
 
+    def _check_recording_health(self):
+        if self._recording_job is not None and not self._recorder.is_recording:
+            self._stop_recording()
+
     def _stop_recording(self) -> None:
+        if self._session is not None:
+            self._stop_live_worker()
+            job = self._recording_job
+            snapshot = self._recording_settings
+            if job is None:
+                return
+            self._recording_job = None
+            try:
+                self._recorder.stop(read_audio=False)
+                job.duration = wav_duration(job.audio_path)
+            except Exception as exc:
+                version = ResultVersion(snapshot.final_whisper_model, snapshot.language, None, status="failed", error=str(exc))
+                job.versions.append(version)
+                self._on_transcription_failed(str(exc))
+                return
+            self._submit_job(job, snapshot, auto_insert=True)
+            self._recorder = self._build_recorder(self._settings)
+            return
         LOGGER.info("Aufnahme wird gestoppt")
         audio = self._recorder.stop()
         LOGGER.info("Audio gestoppt | samples=%s", len(audio))
@@ -558,7 +663,7 @@ class Application(QObject):
     @pyqtSlot()
     def _cycle_language(self) -> None:
         lang = self._settings.cycle_language()
-        self._settings.save()
+        self._save_settings(self._settings)
         if not self._test_mode:
             lang_name = localized_spoken_language_name(lang, self._settings)
             self._status_window.show_message(tr("language_message", self._settings, language=lang_name))
@@ -604,8 +709,10 @@ class Application(QObject):
         self._recording_started_at = None
         self._last_recording_duration_seconds = 0.0
         final_text, should_press_enter = extract_enter_command(text)
+        if self._settings.correction_rules_enabled:
+            final_text = apply_corrections(final_text, self._settings.correction_rules)
         options = self._build_text_optimization_options()
-        if self._settings.text_optimization_enabled and final_text.strip() and options.has_work(self._settings.language):
+        if (self._settings.text_optimization_enabled or self._settings.text_translation_enabled) and final_text.strip() and options.has_work(self._settings.language):
             self._active_text_optimizations += 1
             self._status_changed.emit("processing")
             threading.Thread(
@@ -630,11 +737,13 @@ class Application(QObject):
     ) -> None:
         """Run the local model off the Qt thread and retain a safe fallback."""
         try:
+            protected, names = protect_names(text, self._settings.correction_rules if self._settings.correction_rules_enabled else [])
             optimized_text = self._text_optimizer.optimize(
-                text,
+                protected,
                 options=options,
                 language=language,
             )
+            optimized_text = restore_names(optimized_text, names)
             used_fallback = False
             LOGGER.info(
                 "Textoptimierung fertig | formatting=%s cleanup=%s redact=%s translation_target=%s input_chars=%s output_chars=%s",
@@ -659,9 +768,9 @@ class Application(QObject):
             else None
         )
         return TextOptimizationOptions(
-            formatting=self._settings.text_optimization_formatting_enabled,
-            cleanup=self._settings.text_optimization_cleanup_enabled,
-            redact=self._settings.text_optimization_redact_enabled,
+            formatting=self._settings.text_optimization_enabled and self._settings.text_optimization_formatting_enabled,
+            cleanup=self._settings.text_optimization_enabled and self._settings.text_optimization_cleanup_enabled,
+            redact=self._settings.text_optimization_enabled and self._settings.text_optimization_redact_enabled,
             translation_target=target,
         )
 
@@ -788,8 +897,133 @@ class Application(QObject):
     def _open_history(self) -> None:
         """Show history window with recent transcriptions."""
         if not self._test_mode:
-            self._history_window.set_history(self._history)
+            self._history_window.set_jobs(self._session.jobs)
             self._history_window.show()
+
+    def _open_audio(self) -> None:
+        if self._recorder.is_recording or self._closing:
+            return
+        path, _ = QFileDialog.getOpenFileName(None, tr("audio_open", self._settings), "", "Audio (*.wav *.mp3 *.m4a *.flac)")
+        if not path:
+            return
+        from gui.audio_dialog import AudioOptionsDialog
+        dialog = AudioOptionsDialog(self._settings)
+        if not dialog.exec():
+            return
+        job = self._session.create(source="file")
+        self._submit_job(job, dialog.snapshot(), source_path=Path(path))
+        self._open_history()
+
+    def _recognize_job(self, job) -> None:
+        if job.running or self._recorder.is_recording:
+            return
+        from gui.audio_dialog import AudioOptionsDialog
+        dialog = AudioOptionsDialog(self._settings)
+        if dialog.exec():
+            self._submit_job(job, dialog.snapshot())
+            self._open_history()
+
+    def _retry_job(self, job) -> None:
+        if job.running or not job.versions or self._recorder.is_recording:
+            return
+        version = job.versions[-1]
+        settings = version.settings_snapshot or self._settings.snapshot()
+        self._submit_job(job, settings, retry=version)
+
+    def _delete_job(self, job) -> None:
+        try:
+            self._session.delete(job)
+            self._history_window.set_jobs(self._session.jobs)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(None, tr("error", self._settings), str(exc))
+
+    def _submit_job(self, job, settings, *, auto_insert=False, source_path=None, retry=None):
+        if self._closing or job.running:
+            return
+        if source_path is not None:
+            job.original_path = source_path
+        if source_path is None and not job.audio_path.exists():
+            source_path = job.original_path
+        snapshot = settings.snapshot()
+        version = retry or ResultVersion(snapshot.final_whisper_model, snapshot.language or None,
+                                        snapshot.text_translation_target_language if snapshot.text_translation_enabled else None,
+                                        text_model=snapshot.text_model)
+        version.settings_snapshot = snapshot
+        if auto_insert:
+            version.warnings.extend(getattr(self._recorder, "capture_warnings", []))
+        if retry is None:
+            job.versions.append(version)
+        version.status, version.error = "processing", ""
+        job.phase = ""
+        job.cancel.clear()
+        job.running = True
+        self._status_changed.emit("processing")
+
+        def worker():
+            enter = False
+            with self._job_lock:
+                try:
+                    if job.cancel.is_set():
+                        version.status = "cancelled"
+                        return
+                    if source_path:
+                        convert_audio(source_path, job.audio_path, job.cancel)
+                    self._transcriber_final.set_model(version.model)
+                    self._transcriber_final.set_compute_device(snapshot.compute_device)
+                    self._transcriber_final.set_keep_model_loaded(snapshot.keep_model_loaded)
+                    if snapshot.text_optimization_enabled or snapshot.text_translation_enabled:
+                        self._text_optimizer.set_compute_device(snapshot.compute_device)
+                        self._text_optimizer.set_model(snapshot.text_model)
+                    enter = run_job(job, version, snapshot, self._transcriber_final, self._text_optimizer,
+                                    lambda value: self._job_progress.emit(job))
+                except Exception as exc:
+                    LOGGER.exception("Job %s failed before processing completed", job.id)
+                    version.status = "cancelled" if job.cancel.is_set() else "failed"
+                    version.error = str(exc)
+                finally:
+                    job.running = False
+                    self._job_finished.emit(job, version, snapshot, auto_insert, enter)
+        thread = threading.Thread(target=worker, name=f"audio-{job.id[:8]}", daemon=True)
+        self._job_threads = [t for t in self._job_threads if t.is_alive()]
+        self._job_threads.append(thread)
+        thread.start()
+
+    def _on_job_progress(self, job):
+        if not self._test_mode and job.running:
+            self._status_window.set_loading(True, job.phase or tr("processing", self._settings))
+        if not self._test_mode and self._history_window.isVisible():
+            self._history_window.refresh_job(job)
+
+    def _on_job_finished(self, job, version, snapshot, auto_insert, enter):
+        if self._closing:
+            return
+        if version.status in {"complete", "optimization_failed"}:
+            text = version.text
+            if snapshot.emoji_mode_enabled:
+                text = enrich_with_emojis(text, language=version.language)
+            version.text = text
+            self._history.append(text)
+            self._history = self._history[-self._max_history:]
+            if auto_insert and snapshot.auto_insert:
+                if snapshot.live_transcription_enabled:
+                    self._queue_replace(self._rendered_live_text, text)
+                    self._rendered_live_text = ""
+                else:
+                    self._queue_insert(text)
+                if enter:
+                    self._queue_enter()
+            if auto_insert:
+                self._statistics.record_session(started_at=job.created, duration_seconds=job.duration, language=version.language or snapshot.language)
+            if version.status == "optimization_failed" and not self._test_mode:
+                self._status_window.show_message(tr("optimization_failed", snapshot))
+        elif not self._test_mode:
+            self._status_window.show_message(tr("translation_failed" if version.status == "translation_failed" else "transcription_failed", snapshot))
+            self._open_history()
+        self._recording_started_at = None
+        self._pending_stats_session = False
+        self._status_changed.emit("processing" if any(j.running for j in self._session.jobs) else "ready")
+        if not self._test_mode:
+            self._history_window.refresh_job(job)
 
     @pyqtSlot()
     def _open_statistics(self) -> None:
@@ -851,6 +1085,7 @@ class Application(QObject):
         # i.e. the insertion worker has fully dispatched them (not just dequeued).
         return (
             not self._recorder.is_recording
+            and (self._session is None or not any(j.running for j in self._session.jobs))
             and self._active_preloads == 0
             and self._active_text_optimizations == 0
             and self._insert_queue.unfinished_tasks == 0
