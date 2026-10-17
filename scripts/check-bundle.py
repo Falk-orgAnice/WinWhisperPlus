@@ -10,10 +10,15 @@ environment = dict(os.environ, APPDATA=str(profile), LOCALAPPDATA=str(profile), 
 parser = argparse.ArgumentParser()
 parser.add_argument("--package", default="build/feature-package")
 args = parser.parse_args()
-executable = root / args.package / "WinWhisperPlus/WinWhisperPlus.exe"
-completed = subprocess.run([str(executable), "--smoke-test"], env=environment, timeout=30)
-assert completed.returncode == 0, f"Bundle failed: {completed.returncode}"
+package = root / args.package
+executable = package / "WinWhisperPlus.exe"
+if not executable.is_file():
+    executable = package / "WinWhisperPlus/WinWhisperPlus.exe"
 report = profile / "WinWhisperPlus/bundle-smoke.txt"
+report.unlink(missing_ok=True)
+completed = subprocess.run([str(executable), "--smoke-test"], env=environment, timeout=30,
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+assert completed.returncode == 0, f"Bundle failed: {completed.returncode}\n{completed.stderr[-4000:]}"
 assert report.read_text(encoding="utf-8") == "OK", report.read_text(encoding="utf-8")
 sessions = profile / "WinWhisperPlus/sessions"
 assert not list(sessions.glob("*/owner.json")), "Session not cleaned on graceful exit"

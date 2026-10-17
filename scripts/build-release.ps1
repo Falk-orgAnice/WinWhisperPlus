@@ -3,6 +3,9 @@ param(
     [switch]$SkipTests,
     [switch]$SkipSigning,
     [switch]$SkipInstaller,
+    [switch]$PrepareOnly,
+    [switch]$ReuseRuntimes,
+    [switch]$ReuseEnvironment,
     [string]$AppVersion,
     [string]$InnoSetupCompilerPath,
     [string]$CertificateThumbprint = "d7e33e34882d111c4a3eb5cf0175bea39ecf8a29",
@@ -194,7 +197,7 @@ function Build-WhisperCppVulkanRuntime {
     } "VAD-Zeitmarken konnten nicht korrigiert werden."
     Invoke-NativeCommand {
         & $cmakeExe -S $whisperCppSourceDir -B $whisperCppBuildDir `
-            -DGGML_VULKAN=1 -DWHISPER_BUILD_TESTS=OFF `
+            -A x64 -DGGML_VULKAN=1 -DWHISPER_BUILD_TESTS=OFF `
             "-DVulkan_ROOT=$vulkanSdk"
     } "whisper.cpp konnte nicht fuer Vulkan konfiguriert werden."
     Invoke-NativeCommand {
@@ -233,7 +236,7 @@ function Build-TextOptimizerRuntime {
     } "llama.cpp konnte nicht abgerufen werden."
     Invoke-NativeCommand {
         & $cmakeExe -S $llamaCppSourceDir -B $llamaCppBuildDir `
-            -DGGML_VULKAN=1 -DLLAMA_BUILD_TESTS=OFF `
+            -A x64 -DGGML_VULKAN=1 -DLLAMA_BUILD_TESTS=OFF `
             "-DVulkan_ROOT=$vulkanSdk"
     } "llama.cpp konnte nicht fuer Vulkan konfiguriert werden."
     Invoke-NativeCommand {
@@ -339,7 +342,7 @@ function Set-CodeSignatureWithPowerShell {
 }
 
 Set-Location $repoRoot
-$releaseVersion = Get-ReleaseVersion
+$releaseVersion = if ($PrepareOnly) { (Get-Content -LiteralPath $versionFilePath -Raw).Trim() } else { Get-ReleaseVersion }
 $installerExePath = Join-Path $distDir "WinWhisperPlus-Setup-$releaseVersion.exe"
 Write-Host "Release-Version: $releaseVersion"
 
@@ -372,14 +375,19 @@ Invoke-Step "Erstelle Build-Umgebung" {
         } "Virtuelle Build-Umgebung konnte nicht erstellt werden."
     }
     Invoke-NativeCommand {
-        & $pythonExe -m pip install --upgrade pip
-    } "pip konnte nicht aktualisiert werden."
+        & $pythonExe -c "import struct; raise SystemExit(0 if struct.calcsize('P') == 8 else 1)"
+    } "Die Build-Umgebung muss 64-bit Python verwenden. Entferne die 32-bit .venv-build und starte erneut."
+    if (-not $ReuseEnvironment) {
+        Invoke-NativeCommand {
+            & $pythonExe -m pip install --upgrade pip
+        } "pip konnte nicht aktualisiert werden."
+    }
     Invoke-NativeCommand {
-        & $pythonExe -m pip install -r requirements.txt -r requirements-dev.txt
+        & $pythonExe -m pip --disable-pip-version-check install -r requirements-dev.txt
     } "Abhaengigkeiten konnten nicht installiert werden."
 }
 
-if (-not $SkipTests) {
+if (-not $SkipTests -and -not $PrepareOnly) {
     Invoke-Step "Fuehre Tests aus" {
         Invoke-NativeCommand {
             & $pythonExe -m pytest tests
@@ -387,6 +395,7 @@ if (-not $SkipTests) {
     }
 }
 
+if (-not $PrepareOnly) {
 Invoke-Step "Bereinige alte Build-Ausgaben" {
     Remove-BuildPath (Join-Path $repoRoot "build")
     Remove-BuildPath $appDistDir
@@ -394,13 +403,31 @@ Invoke-Step "Bereinige alte Build-Ausgaben" {
     Remove-BuildPath $installerBaseExePath
     Remove-BuildPath $installerExePath
 }
+}
 
 Invoke-Step "Baue whisper.cpp mit Vulkan" {
-    Build-WhisperCppVulkanRuntime
+    if ($ReuseRuntimes -and (Test-Path (Join-Path $whisperCppRuntimeDir "whisper-cli.exe")) -and
+        (Test-Path (Join-Path $whisperCppRuntimeDir "whisper-server.exe"))) {
+        Write-Host "Verwende vorhandene whisper.cpp-Laufzeit."
+    } else {
+        Build-WhisperCppVulkanRuntime
+    }
 }
 
 Invoke-Step "Baue lokalen Textoptimierer mit Vulkan" {
-    Build-TextOptimizerRuntime
+    if ($ReuseRuntimes -and (Test-Path (Join-Path $textOptimizerRuntimeDir "llama-server.exe")) -and
+        (Test-Path $textModelPath) -and (Test-Path (Join-Path $textModelDir "text-model.sha256"))) {
+        Write-Host "Verwende vorhandene llama.cpp-Laufzeit und Qwen-Modell."
+    } else {
+        Build-TextOptimizerRuntime
+    }
+}
+
+$env:WINWHISPERPLUS_WHISPERCPP_DIR = $whisperCppRuntimeDir
+$env:WINWHISPERPLUS_TEXTOPTIMIZER_DIR = $textOptimizerRuntimeDir
+if ($PrepareOnly) {
+    Write-Host "Build-Abhaengigkeiten vorbereitet; VERSION und bestehende Pakete bleiben unveraendert."
+    return
 }
 
 Invoke-Step "Baue WinWhisperPlus.exe" {

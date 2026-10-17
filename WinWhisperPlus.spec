@@ -4,10 +4,16 @@ import os
 from pathlib import Path
 import subprocess
 import imageio_ffmpeg
-from pathlib import Path
 
 
 block_cipher = None
+configuration = os.environ.get("WINWHISPERPLUS_BUILD_CONFIGURATION", "Release")
+if configuration not in {"Debug", "Release"}:
+    raise SystemExit("Supported build configurations: Debug, Release")
+debug_build = configuration == "Debug"
+package_name = os.environ.get("WINWHISPERPLUS_PACKAGE_NAME", "WinWhisperPlus")
+if package_name not in {"WinWhisperPlus", "Debug", "Release"}:
+    raise SystemExit("Unsupported package directory")
 
 datas = [
     ("assets/icon.svg", "assets"),
@@ -77,11 +83,11 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="WinWhisperPlus",
-    debug=False,
+    debug=debug_build,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,
+    console=debug_build,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -96,5 +102,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="WinWhisperPlus",
+    name=package_name,
 )

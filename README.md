@@ -55,6 +55,50 @@ not need Python, the Vulkan SDK, or any other build tools.
 
 ## Windows Release Package
 
+### Build in Visual Studio 2026 (x64)
+
+Open `WinWhisperPlus.sln`, select **Debug | x64** or **Release | x64**, then
+choose **Build Solution** (`Ctrl+Shift+B`). These are the only configurations.
+The solution uses a Makefile project to invoke the Python/PyInstaller build;
+install the **Desktop development with C++** workload (MSVC v145 and CMake),
+Python 3.10–3.14 **64-bit** with the `py` launcher, and the Vulkan SDK.
+No Python project workload, signing certificate, or Inno Setup is required.
+This follows Microsoft's [Makefile project integration](https://learn.microsoft.com/en-us/cpp/build/reference/creating-a-makefile-project?view=msvc-180).
+
+The ready-to-run application and all its dependencies are written to:
+
+```text
+Bin\Debug\WinWhisperPlus.exe
+Bin\Debug\_internal\...
+Bin\Release\WinWhisperPlus.exe
+Bin\Release\_internal\...
+```
+
+Debug includes a console and PyInstaller bootloader diagnostics; Release is a
+windowed application without a console. Both contain the complete local runtimes,
+FFmpeg and bundled Qwen model. Keep each entire configuration directory together.
+The Visual Studio run command launches the selected executable; Python source
+debugging still requires a Python debugger rather than the native EXE debugger.
+
+The first build installs dependencies, builds missing x64 runtimes and downloads
+the bundled text model (several GB). Later builds reuse these caches. Build and
+Rebuild keep `VERSION` unchanged and create no installer or signed release.
+Clean/Rebuild affect only the selected configuration; the other configuration,
+`.venv-build`, and shared runtime/model caches remain intact.
+
+From a Visual Studio Developer PowerShell, the equivalent commands are:
+
+```powershell
+msbuild .\WinWhisperPlus.sln /t:Build /p:Configuration=Debug /p:Platform=x64
+msbuild .\WinWhisperPlus.sln /t:Build /p:Configuration=Release /p:Platform=x64
+# Or without opening Visual Studio:
+.\scripts\build-solution.ps1 -Configuration Debug -Action Build
+.\scripts\build-solution.ps1 -Configuration Release -Action Rebuild
+.\scripts\build-solution.ps1 -Configuration Debug -Action Clean
+```
+
+### Signed distribution and installer
+
 End users do **not** need to install Python when you distribute the PyInstaller
 release package. They only need to unzip the package and start
 `WinWhisperPlus.exe`.
