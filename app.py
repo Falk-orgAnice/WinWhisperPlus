@@ -21,7 +21,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, QTimer, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from config.localization import localized_spoken_language_name, tr
@@ -443,9 +443,20 @@ class Application(QObject):
                 self._status_window.show_message(tr("save_failed", settings))
 
     def _open_settings(self) -> None:
-        dlg = SettingsWindow(self._settings)
-        dlg.settings_saved.connect(self._apply_settings)
-        dlg.exec()
+        status_was_visible = self._status_window.isVisible()
+        if status_was_visible:
+            # The floating status widget is always-on-top, so it would otherwise
+            # cover the parentless modal dialog on Windows.
+            self._status_window.hide()
+        try:
+            dlg = SettingsWindow(self._settings)
+            dlg.settings_saved.connect(self._apply_settings)
+            dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
+            dlg.exec()
+        finally:
+            if status_was_visible and not self._closing:
+                self._status_window.show()
+                self._status_window.raise_()
 
     def _notify_rules_error(self, settings):
         error = settings.rules_error

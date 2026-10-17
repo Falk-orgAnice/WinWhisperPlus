@@ -5,6 +5,8 @@ microphone and Whisper model size.
 
 from __future__ import annotations
 
+import csv
+import io
 from typing import TYPE_CHECKING
 from pathlib import Path
 
@@ -24,6 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QTabWidget, QScrollArea, QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView,
     QFileDialog, QToolButton, QStyle,
+    QApplication,
 )
 from PyQt6.QtGui import QKeySequence
 
@@ -73,6 +76,68 @@ class HotkeyEdit(QLineEdit):
 
         if parts:
             self.setText("+".join(parts))
+
+
+class CorrectionRulesTable(QTableWidget):
+    """Editable rule grid with spreadsheet-style text copy and paste."""
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        if event.matches(QKeySequence.StandardKey.Copy):
+            self._copy_cells()
+            return
+        if event.matches(QKeySequence.StandardKey.Paste):
+            self._paste_cells()
+            return
+        super().keyPressEvent(event)
+
+    def _copy_cells(self) -> None:
+        indexes = self.selectedIndexes()
+        if not indexes:
+            return
+        rows = [index.row() for index in indexes]
+        columns = [index.column() for index in indexes if index.column() in (1, 2)]
+        if not columns:
+            return
+        top, bottom = min(rows), max(rows)
+        left, right = min(columns), max(columns)
+        values = []
+        for row in range(top, bottom + 1):
+            values.append("\t".join(
+                self.item(row, column).text() if self.item(row, column) else ""
+                for column in range(left, right + 1)
+            ))
+        QApplication.clipboard().setText("\n".join(values))
+
+    def _paste_cells(self) -> None:
+        text = QApplication.clipboard().text()
+        if not text:
+            return
+        rows = list(csv.reader(io.StringIO(text), delimiter="\t"))
+        if not rows:
+            return
+        start_row = max(0, self.currentRow())
+        start_column = self.currentColumn()
+        if start_column < 1:
+            start_column = 1
+        for row_offset, values in enumerate(rows):
+            target_row = start_row + row_offset
+            if target_row >= self.rowCount():
+                self.insertRow(target_row)
+                active = QTableWidgetItem()
+                active.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsUserCheckable)
+                active.setCheckState(Qt.CheckState.Checked)
+                self.setItem(target_row, 0, active)
+                self.setItem(target_row, 1, QTableWidgetItem())
+                self.setItem(target_row, 2, QTableWidgetItem())
+            for column_offset, value in enumerate(values):
+                target_column = start_column + column_offset
+                if target_column > 2:
+                    break
+                item = self.item(target_row, target_column)
+                if item is None:
+                    item = QTableWidgetItem()
+                    self.setItem(target_row, target_column, item)
+                item.setText(value)
 
 
 class SettingsWindow(QDialog):
@@ -279,7 +344,9 @@ class SettingsWindow(QDialog):
         self._rules_error.setWordWrap(True)
         self._rules_error.setText(self._rules_error_text(self._settings.rules_error) if self._settings.rules_error else "")
         layout.addWidget(self._rules_error)
-        self._rules_table = QTableWidget(0, 3)
+        self._rules_table = CorrectionRulesTable(0, 3)
+        self._rules_table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
+        self._rules_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectItems)
         self._rules_table.setHorizontalHeaderLabels([tr(k, self._settings) for k in ("active", "recognized", "replacement")])
         header = self._rules_table.horizontalHeader()
         header.setStretchLastSection(False)
