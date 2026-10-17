@@ -57,6 +57,8 @@ datas.append((str(textoptimizer_dir), "textoptimizer"))
 
 hiddenimports = [
     "PyQt6.QtSvg",
+    # GetProcessTimes creates pywin32 datetime objects through a dynamic import.
+    "win32timezone",
 ]
 
 

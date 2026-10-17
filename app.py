@@ -209,6 +209,8 @@ class Application(QObject):
 
         # Register hotkeys, wire recorder/transcriber, schedule model pre-load.
         self._apply_settings(self._settings)
+        if self._settings.rules_error:
+            self._notify_rules_error(self._settings)
 
         # In headless tests no GUI preload runs; keep previous behavior.
         if self._test_mode:
@@ -431,6 +433,32 @@ class Application(QObject):
         dlg.settings_saved.connect(self._apply_settings)
         dlg.exec()
 
+    def _notify_rules_error(self, settings):
+        error = settings.rules_error
+        if not error:
+            return
+        message = tr(error.key, settings) + "\n" + str(error.path)
+        if error.detail:
+            message += "\n" + error.detail
+        message += "\n" + tr("rules_using_cached" if settings._rules_available else "rules_no_valid", settings)
+        LOGGER.warning("Correction rules: %s", message)
+        if not self._test_mode:
+            self._status_window.show_message(message, duration_ms=10000)
+
+    def _prepare_rules(self, settings):
+        if not settings.correction_rules_enabled:
+            return True
+        available = settings.refresh_rules()
+        if settings.rules_error:
+            self._notify_rules_error(settings)
+        elif settings is not self._settings and settings.correction_rules_path == self._settings.correction_rules_path:
+            # Keep the most recently validated file as fallback for later jobs.
+            self._settings._data["correction_rules"] = settings.correction_rules
+            self._settings._rules_available = True
+            self._settings._rules_revision = settings._rules_revision
+            self._settings.rules_error = None
+        return available
+
     # ------------------------------------------------------------------
     # Recording
     # ------------------------------------------------------------------
@@ -447,6 +475,8 @@ class Application(QObject):
             return
         if self._session is not None and any(j.running for j in self._session.jobs):
             self._open_history()
+            return
+        if not self._prepare_rules(self._settings):
             return
         if not self._test_mode:
             # Ensure window is visible when recording starts
@@ -944,11 +974,24 @@ class Application(QObject):
             job.original_path = source_path
         if source_path is None and not job.audio_path.exists():
             source_path = job.original_path
+        # Microphone settings were frozen when recording began. A retry keeps
+        # its original snapshot; imports and new recognitions refresh once.
+        refresh_needed = not auto_insert and (retry is None or retry.settings_snapshot is None)
+        if refresh_needed and not self._prepare_rules(settings):
+            if retry is None:
+                job.versions.append(ResultVersion(settings.final_whisper_model, settings.language or None,
+                    settings.text_translation_target_language if settings.text_translation_enabled else None,
+                    status="failed", error=str(settings.rules_error)))
+            else:
+                retry.status, retry.error = "failed", str(settings.rules_error)
+            return
         snapshot = settings.snapshot()
         version = retry or ResultVersion(snapshot.final_whisper_model, snapshot.language or None,
                                         snapshot.text_translation_target_language if snapshot.text_translation_enabled else None,
                                         text_model=snapshot.text_model)
         version.settings_snapshot = snapshot
+        if retry is None and snapshot.correction_rules_enabled and snapshot.rules_error:
+            version.warnings.append(str(snapshot.rules_error) + "\n" + tr("rules_using_cached", snapshot))
         if auto_insert:
             version.warnings.extend(getattr(self._recorder, "capture_warnings", []))
         if retry is None:

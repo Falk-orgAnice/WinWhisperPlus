@@ -7,14 +7,17 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Preformatted
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Preformatted, KeepTogether
 
 root = Path(__file__).resolve().parents[1]
 source = root / "docs/WinWhisperPlus Benutzerhandbuch.md"
 destination = source.with_suffix(".pdf")
+version = (root / "VERSION").read_text(encoding="utf-8").strip()
 pdfmetrics.registerFont(TTFont("Arial", "C:/Windows/Fonts/arial.ttf"))
 pdfmetrics.registerFont(TTFont("ArialBold", "C:/Windows/Fonts/arialbd.ttf"))
 styles = getSampleStyleSheet()
+styles["BodyText"].allowWidows = 0
+styles["BodyText"].allowOrphans = 0
 for style in styles.byName.values():
     style.fontName = "Arial"
 for name in ("Title", "Heading1", "Heading2", "Heading3"):
@@ -36,6 +39,7 @@ def inline(text):
 
 
 story, paragraph, code = [], [], None
+code_intro = None
 
 
 def flush():
@@ -48,10 +52,11 @@ for line in source.read_text(encoding="utf-8").splitlines():
     if line.startswith("```"):
         flush()
         if code is None:
+            code_intro = story.pop() if story and isinstance(story[-1], Paragraph) and story[-1].style.name == "BodyText" else None
             code = []
         else:
-            story.append(Preformatted("\n".join(code), styles["Code"]))
-            story.append(Spacer(1, 7))
+            story.append(KeepTogether(([code_intro] if code_intro else []) + [Preformatted("\n".join(code), styles["Code"]), Spacer(1, 7)]))
+            code_intro = None
             code = None
         continue
     if code is not None:
@@ -72,7 +77,7 @@ for line in source.read_text(encoding="utf-8").splitlines():
         scale = min(1, 470 / picture.imageWidth, 370 / picture.imageHeight)
         picture.drawWidth = picture.imageWidth * scale
         picture.drawHeight = picture.imageHeight * scale
-        story += [picture, Spacer(1, 4), Paragraph(inline(image[1]), styles["CaptionBody"])]
+        story.append(KeepTogether([picture, Spacer(1, 4), Paragraph(inline(image[1]), styles["CaptionBody"])]))
     elif line.startswith("- "):
         flush()
         story.append(Paragraph("- " + inline(line[2:]), styles["BulletBody"]))
@@ -85,12 +90,12 @@ def footer(canvas, document):
     canvas.saveState()
     canvas.setFont("Arial", 8)
     canvas.setFillColor(colors.HexColor("#526577"))
-    canvas.drawString(50, 28, "WinWhisperPlus 1.2.0 - Benutzerhandbuch")
+    canvas.drawString(50, 28, f"WinWhisperPlus {version} - Benutzerhandbuch")
     canvas.drawRightString(A4[0] - 50, 28, str(document.page))
     canvas.restoreState()
 
 
 SimpleDocTemplate(str(destination), pagesize=A4, leftMargin=50, rightMargin=50,
-                  topMargin=42, bottomMargin=45, title="WinWhisperPlus Benutzerhandbuch 1.2.0",
+                  topMargin=42, bottomMargin=45, title=f"WinWhisperPlus Benutzerhandbuch {version}",
                   author="WinWhisperPlus").build(story, onFirstPage=footer, onLaterPages=footer)
 print(destination)

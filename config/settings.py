@@ -8,6 +8,7 @@ import os
 import copy
 import tempfile
 from pathlib import Path
+from core.rule_store import RuleStore, RulesFileError, ANY_REVISION
 
 DEFAULT_SETTINGS = {
     "hotkey_record": "ctrl+alt+h",
@@ -39,6 +40,7 @@ DEFAULT_SETTINGS = {
     "text_translation_target_language": "en",
     "correction_rules_enabled": True,
     "correction_rules": [],
+    "correction_rules_path": None,
     "text_model": "bundled-qwen3-4b",
 }
 
@@ -74,7 +76,14 @@ class Settings:
     def __init__(self) -> None:
         self._path = _config_path()
         self._data: dict = copy.deepcopy(DEFAULT_SETTINGS)
+        self._rules_available = False
+        self._rules_migrated = False
+        self.rules_error = None
+        self._rules_revision = None
+        self._legacy_rules_present = False
+        self._stored_rules_path = False
         self._load()
+        self._initialize_rules()
 
     # ------------------------------------------------------------------
     # Persistence
@@ -105,6 +114,8 @@ class Settings:
                     stored["text_optimization_cleanup_enabled"] = profile in {"cleanup", "redact"}
                     stored["text_optimization_redact_enabled"] = profile == "redact"
                 # Merge with defaults so new keys are always present
+                self._legacy_rules_present = "correction_rules" in stored
+                self._stored_rules_path = "correction_rules_path" in stored
                 self._data.update({k: v for k, v in stored.items() if k in DEFAULT_SETTINGS})
             except (json.JSONDecodeError, OSError):
                 pass  # fall back to defaults
@@ -116,7 +127,10 @@ class Settings:
             with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self._path.parent,
                                              prefix="settings-", suffix=".tmp", delete=False) as fh:
                 temporary = Path(fh.name)
-                json.dump(self._data, fh, indent=2, ensure_ascii=False)
+                payload = dict(self._data)
+                if self._rules_migrated or not self._legacy_rules_present:
+                    payload.pop("correction_rules", None)
+                json.dump(payload, fh, indent=2, ensure_ascii=False)
                 fh.flush()
                 os.fsync(fh.fileno())
             os.replace(temporary, self._path)
@@ -128,6 +142,72 @@ class Settings:
         result = copy.copy(self)
         result._data = copy.deepcopy(self._data)
         return result
+
+    @property
+    def correction_rules_path(self) -> Path:
+        return self.resolve_rules_path(self._data["correction_rules_path"])
+
+    def resolve_rules_path(self, value=None) -> Path:
+        if not value:
+            return self._path.parent / "correction-rules.json"
+        if not isinstance(value, (str, Path)):
+            raise RulesFileError(self._path, "rules_invalid_path")
+        path = Path(os.path.expandvars(str(value))).expanduser()
+        if "\0" in str(path):
+            raise RulesFileError(self._path, "rules_invalid_path")
+        if not path.is_absolute():
+            path = self._path.parent / path
+        return Path(os.path.abspath(path))
+
+    @correction_rules_path.setter
+    def correction_rules_path(self, value):
+        path = self.resolve_rules_path(value)
+        if path == self._path:
+            raise RulesFileError(path, "rules_invalid_path")
+        self._data["correction_rules_path"] = None if path == self.resolve_rules_path() else str(path)
+
+    def _initialize_rules(self):
+        try:
+            path = self.correction_rules_path
+            if path == self._path:
+                raise RulesFileError(path, "rules_invalid_path")
+            if not path.exists() and not self._data["correction_rules_path"] and (
+                    self._legacy_rules_present or not self._stored_rules_path):
+                self.save_rules(expected_revision=None)
+            else:
+                if not self.refresh_rules():
+                    raise self.rules_error
+                self._rules_migrated = True
+            if self._legacy_rules_present or not self._stored_rules_path:
+                self.save()  # commit migration only after the rule file was read/written
+        except (RulesFileError, OSError) as exc:
+            self._rules_migrated = False
+            self.rules_error = exc if isinstance(exc, RulesFileError) else RulesFileError(self._path, "rules_write_failed", exc)
+            if self._legacy_rules_present:
+                try:
+                    from core.rule_store import validate_file_rules
+                    self._data["correction_rules"] = validate_file_rules(self._data["correction_rules"], self.correction_rules_path)
+                    self._rules_available = True
+                except RulesFileError:
+                    pass
+
+    def refresh_rules(self) -> bool:
+        try:
+            rules, revision = RuleStore(self.correction_rules_path).load()
+            self._data["correction_rules"] = rules
+            self._rules_revision = revision
+            self._rules_available = True
+            self.rules_error = None
+        except RulesFileError as exc:
+            self.rules_error = exc
+        return self._rules_available
+
+    def save_rules(self, *, expected_revision=ANY_REVISION):
+        rules, revision = RuleStore(self.correction_rules_path).save(self._data["correction_rules"], expected_revision=expected_revision)
+        self._data["correction_rules"] = rules
+        self._rules_revision = revision
+        self._rules_available = self._rules_migrated = True
+        self.rules_error = None
 
     @property
     def correction_rules_enabled(self) -> bool:

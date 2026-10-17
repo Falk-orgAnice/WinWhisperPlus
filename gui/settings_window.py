@@ -6,6 +6,7 @@ microphone and Whisper model size.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -22,6 +23,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QTabWidget, QScrollArea, QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView,
+    QFileDialog, QToolButton, QStyle,
 )
 from PyQt6.QtGui import QKeySequence
 
@@ -30,6 +32,8 @@ from config.settings import LANGUAGE_CYCLE, UI_LANGUAGE_CYCLE, Settings
 from core.recorder import list_microphones
 from core.transcriber import COMPUTE_DEVICE_AUTO, COMPUTE_DEVICE_CPU, list_vulkan_devices
 from utils.resources import app_version
+from utils.explorer import reveal_file
+from core.rule_store import RuleStore, RulesFileError, RulesConflict
 
 if TYPE_CHECKING:
     pass
@@ -78,6 +82,7 @@ class SettingsWindow(QDialog):
 
     def __init__(self, settings: Settings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        settings.refresh_rules()
         self._settings = settings
         self._original_settings = settings
         self._settings = settings.snapshot()
@@ -248,6 +253,32 @@ class SettingsWindow(QDialog):
         self._rules_enabled = QCheckBox(tr("correction_enabled", self._settings))
         self._rules_enabled.setChecked(self._settings.correction_rules_enabled)
         layout.addWidget(self._rules_enabled)
+        path_row = QHBoxLayout()
+        self._rules_path_label = QLabel(tr("rules_file", self._settings))
+        path_row.addWidget(self._rules_path_label)
+        self._rules_path = self._settings.correction_rules_path
+        self._rules_path_edit = QLineEdit(str(self._rules_path))
+        self._rules_path_edit.setToolTip(str(self._rules_path))
+        self._rules_path_edit.setMinimumWidth(100)
+        self._rules_path_edit.editingFinished.connect(self._change_rules_path)
+        path_row.addWidget(self._rules_path_edit, 1)
+        browse = QToolButton()
+        browse.setText("…")
+        browse.setToolTip(tr("rules_file_choose", self._settings))
+        browse.setAccessibleName(tr("rules_file_choose", self._settings))
+        browse.clicked.connect(self._browse_rules)
+        path_row.addWidget(browse)
+        self._rules_reveal_button = QToolButton()
+        self._rules_reveal_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
+        self._rules_reveal_button.setToolTip(tr("rules_reveal", self._settings))
+        self._rules_reveal_button.setAccessibleName(tr("rules_reveal", self._settings))
+        self._rules_reveal_button.clicked.connect(self._reveal_rules)
+        path_row.addWidget(self._rules_reveal_button)
+        layout.addLayout(path_row)
+        self._rules_error = QLabel()
+        self._rules_error.setWordWrap(True)
+        self._rules_error.setText(self._rules_error_text(self._settings.rules_error) if self._settings.rules_error else "")
+        layout.addWidget(self._rules_error)
         self._rules_table = QTableWidget(0, 3)
         self._rules_table.setHorizontalHeaderLabels([tr(k, self._settings) for k in ("active", "recognized", "replacement")])
         header = self._rules_table.horizontalHeader()
@@ -263,6 +294,9 @@ class SettingsWindow(QDialog):
         remove.clicked.connect(self._remove_rules)
         buttons.addWidget(add)
         buttons.addWidget(remove)
+        reload_button = QPushButton(tr("rules_reload", self._settings))
+        reload_button.clicked.connect(self._reload_rules)
+        buttons.addWidget(reload_button)
         layout.addLayout(buttons)
         note = QLabel(tr("correction_note", self._settings))
         note.setWordWrap(True)
@@ -270,6 +304,69 @@ class SettingsWindow(QDialog):
         self._tabs.addTab(page, tr("correction_rules", self._settings))
         for rule in self._settings.correction_rules:
             self._add_rule(rule)
+        self._rules_baseline = self._table_rules()
+        self._rules_revision = self._settings._rules_revision
+
+    def _rules_error_text(self, error):
+        return tr(error.key, self._settings) + "\n" + str(error.path) + ("\n" + error.detail if error.detail else "")
+
+    def _table_rules(self):
+        return [{"source": self._rules_table.item(row, 1).text(),
+                 "target": self._rules_table.item(row, 2).text(),
+                 "enabled": self._rules_table.item(row, 0).checkState() == Qt.CheckState.Checked}
+                for row in range(self._rules_table.rowCount())]
+
+    def _confirm_discard(self, *, copy=False):
+        return self._table_rules() == self._rules_baseline or QMessageBox.question(
+            self, tr("correction_rules", self._settings), tr("rules_copy_unsaved" if copy else "rules_discard", self._settings),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes
+
+    def _change_rules_path(self, *, reload=False):
+        try:
+            path = self._settings.resolve_rules_path(self._rules_path_edit.text().strip())
+            if path == self._settings._path:
+                raise RulesFileError(path, "rules_invalid_path")
+            if path == self._rules_path and not reload:
+                self._rules_path_edit.setText(str(path))
+                self._rules_path_edit.setToolTip(str(path))
+                return True
+            if not self._confirm_discard(copy=not path.exists() and not reload):
+                self._rules_path_edit.setText(str(self._rules_path))
+                return False
+            rules, revision = RuleStore(path).load() if path.exists() or reload else (self._table_rules(), None)
+            self._rules_table.setRowCount(0)
+            for rule in rules:
+                self._add_rule(rule)
+            self._rules_path, self._rules_revision = path, revision
+            self._rules_path_edit.setText(str(path))
+            self._rules_path_edit.setToolTip(str(path))
+            self._rules_baseline = self._table_rules()
+            self._rules_error.clear()
+            return True
+        except RulesFileError as exc:
+            self._rules_path_edit.setText(str(self._rules_path))
+            QMessageBox.warning(self, tr("correction_rules", self._settings), self._rules_error_text(exc))
+            return False
+
+    def _browse_rules(self):
+        path, _ = QFileDialog.getSaveFileName(self, tr("rules_file_choose", self._settings),
+                                             str(self._rules_path), "JSON (*.json);;All files (*)",
+                                             options=QFileDialog.Option.DontConfirmOverwrite)
+        if path:
+            self._rules_path_edit.setText(path)
+            self._change_rules_path()
+
+    def _reload_rules(self):
+        self._change_rules_path(reload=True)
+
+    def _reveal_rules(self):
+        if not self._change_rules_path():
+            return
+        try:
+            reveal_file(self._rules_path)
+        except OSError as exc:
+            QMessageBox.warning(self, tr("rules_reveal", self._settings), tr("rules_parent_missing", self._settings) + "\n" + str(exc))
 
     def _add_rule(self, rule=None) -> None:
         rule = rule or {"source": "", "target": "", "enabled": True}
@@ -470,6 +567,8 @@ class SettingsWindow(QDialog):
                 break
 
     def _save(self) -> None:
+        if not self._change_rules_path():
+            return
         for model_id in (self._final_model_combo.currentText(), self._text_model_combo.currentData()):
             if model_id == "bundled-qwen3-4b":
                 continue
@@ -479,12 +578,7 @@ class SettingsWindow(QDialog):
                 QMessageBox.warning(self, tr("models", self._settings), tr("incompatible", self._settings))
                 return
         try:
-            self._settings.correction_rules = [
-                {"source": self._rules_table.item(row, 1).text(),
-                 "target": self._rules_table.item(row, 2).text(),
-                 "enabled": self._rules_table.item(row, 0).checkState() == Qt.CheckState.Checked}
-                for row in range(self._rules_table.rowCount())
-            ]
+            self._settings.correction_rules = self._table_rules()
         except ValueError as exc:
             QMessageBox.warning(self, tr("correction_rules", self._settings), tr(str(exc), self._settings))
             return
@@ -510,11 +604,25 @@ class SettingsWindow(QDialog):
         self._settings.text_translation_enabled = self._text_translation_cb.isChecked()
         self._settings.text_translation_target_language = self._text_translation_target_combo.currentData()
         try:
+            self._settings.correction_rules_path = self._rules_path
+            try:
+                self._settings.save_rules(expected_revision=self._rules_revision)
+            except RulesConflict:
+                conflicted_revision = RuleStore(self._rules_path).revision()
+                if QMessageBox.question(self, tr("correction_rules", self._settings), tr("rules_conflict", self._settings),
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                        QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+                    return
+                # Recheck immediately before replacement; do not suppress a
+                # second change made while the confirmation was displayed.
+                self._settings.save_rules(expected_revision=conflicted_revision)
+            self._rules_revision = self._settings._rules_revision
             self._settings.save()
-        except OSError as exc:
-            QMessageBox.warning(self, tr("settings_title", self._settings), tr("save_failed", self._settings) + "\n" + str(exc))
+        except (OSError, RulesFileError) as exc:
+            detail = self._rules_error_text(exc) if isinstance(exc, RulesFileError) else str(exc)
+            QMessageBox.warning(self, tr("settings_title", self._settings), tr("save_failed", self._settings) + "\n" + detail)
             return
-        self._original_settings._data = self._settings.snapshot()._data
+        self._original_settings.__dict__.update(self._settings.snapshot().__dict__)
         self._settings = self._original_settings
         self.accept()
         QTimer.singleShot(0, lambda: self.settings_saved.emit(self._settings))

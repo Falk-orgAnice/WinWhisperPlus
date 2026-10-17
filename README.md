@@ -1,4 +1,4 @@
-# WinWhisperPlus
+﻿# WinWhisperPlus
 
 Ein Windows-Tool zur lokalen Spracherkennung auf Basis von whisper.cpp.
 A Windows speech-recognition tool powered by OpenAI Whisper running entirely locally.
@@ -8,17 +8,17 @@ A Windows speech-recognition tool powered by OpenAI Whisper running entirely loc
 Whisper inference is provided by a bundled `whisper.cpp` runtime using Vulkan.
 The same release supports AMD, NVIDIA, and Intel GPUs, plus CPU-only inference.
 
-- 🎤 **Speech-to-Text** – Converts microphone input to text using OpenAI Whisper (local, no cloud).
-- 🌍 **Language support** – German (Deutsch), Polish (Polski), English, French (Français), Dutch (Nederlands).
-- 🗂️ **Localized interface** – UI available in German, Polish, and English independently from dictation language.
-- ⌨️ **System-wide hotkeys** – Configurable hotkeys to start/stop recording and cycle languages.
-- 📋 **Auto-insert** – Transcribed text is automatically pasted into the currently active input field.
-- ⚡ **Live mode** – Optional near real-time transcription inserts stable partial text while you are still speaking.
-- ✨ **Local text optimization** – Optionally structures final dictation locally with Qwen3: paragraphs, punctuation, lists, and configurable conservative cleanup.
-- 📊 **Usage statistics** – Tracks successful sessions and shows count/total/average recording duration per day, week, and month.
-- 🎛️ **Microphone selection** – Choose from all connected input devices.
-- 🔔 **System tray** – Runs silently in the background with a tray icon and context menu.
-- ⚙️ **Settings GUI** – Configure hotkeys, language, microphone and Whisper model size.
+- ðŸŽ¤ **Speech-to-Text** â€“ Converts microphone input to text using OpenAI Whisper (local, no cloud).
+- ðŸŒ **Language support** â€“ German (Deutsch), Polish (Polski), English, French (FranÃ§ais), Dutch (Nederlands).
+- ðŸ—‚ï¸ **Localized interface** â€“ UI available in German, Polish, and English independently from dictation language.
+- âŒ¨ï¸ **System-wide hotkeys** â€“ Configurable hotkeys to start/stop recording and cycle languages.
+- ðŸ“‹ **Auto-insert** â€“ Transcribed text is automatically pasted into the currently active input field.
+- âš¡ **Live mode** â€“ Optional near real-time transcription inserts stable partial text while you are still speaking.
+- âœ¨ **Local text optimization** â€“ Optionally structures final dictation locally with Qwen3: paragraphs, punctuation, lists, and configurable conservative cleanup.
+- ðŸ“Š **Usage statistics** â€“ Tracks successful sessions and shows count/total/average recording duration per day, week, and month.
+- ðŸŽ›ï¸ **Microphone selection** â€“ Choose from all connected input devices.
+- ðŸ”” **System tray** â€“ Runs silently in the background with a tray icon and context menu.
+- âš™ï¸ **Settings GUI** â€“ Configure hotkeys, language, microphone and Whisper model size.
 
 ## Default Hotkeys
 
@@ -47,8 +47,8 @@ For development or direct source usage:
 pip install -r requirements.txt
 ```
 
-> Für die GPU-Beschleunigung im Release baut das Build-Skript whisper.cpp mit
-> Vulkan. Dazu werden Visual Studio C++ Build Tools, CMake und das Vulkan SDK benötigt.
+> FÃ¼r die GPU-Beschleunigung im Release baut das Build-Skript whisper.cpp mit
+> Vulkan. Dazu werden Visual Studio C++ Build Tools, CMake und das Vulkan SDK benÃ¶tigt.
 
 For a full installer build, Inno Setup 6 or 7 is also required. End users do
 not need Python, the Vulkan SDK, or any other build tools.
@@ -61,7 +61,7 @@ Open `WinWhisperPlus.sln`, select **Debug | x64** or **Release | x64**, then
 choose **Build Solution** (`Ctrl+Shift+B`). These are the only configurations.
 The solution uses a Makefile project to invoke the Python/PyInstaller build;
 install the **Desktop development with C++** workload (MSVC v145 and CMake),
-Python 3.10–3.14 **64-bit** with the `py` launcher, and the Vulkan SDK.
+Python 3.10â€“3.14 **64-bit** with the `py` launcher, and the Vulkan SDK.
 No Python project workload, signing certificate, or Inno Setup is required.
 This follows Microsoft's [Makefile project integration](https://learn.microsoft.com/en-us/cpp/build/reference/creating-a-makefile-project?view=msvc-180).
 
@@ -149,6 +149,15 @@ Whisper cache. Settings and statistics are still stored below
 
 ## Usage
 
+WinWhisperPlus 1.2.5 runs once per Windows user, including across Debug/Release
+builds and different installation folders. A second interactive start shows
+â€œWinWhisperPlus lÃ¤uft bereitsâ€ and exits before loading configuration, models,
+or hotkeys. An already-running older `WinWhisperPlus.exe` is detected too.
+The Windows mutex is automatically released if the process exits or crashes.
+Resource-only `--smoke-test` runs are exempt because they do not start an
+interactive session. The guard uses a user-specific named mutex following the
+[Windows named-object lifecycle](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createmutexw).
+
 ```bash
 python main.py
 ```
@@ -161,18 +170,18 @@ For end-user instructions with screenshots, see the German
 
 ## Configuration
 
-Click **Einstellungen…** in the tray menu to open the settings dialog where you can:
+Click **Einstellungenâ€¦** in the tray menu to open the settings dialog where you can:
 
 The shown application version in this dialog is read from the bundled `VERSION`
 file. Release builds and the Inno Setup package use the same version value.
 
 - Change hotkeys by clicking the field and pressing the desired key combination.
-- Select the default language (Deutsch / Polski / English / Français / Nederlands).
+- Select the default language (Deutsch / Polski / English / FranÃ§ais / Nederlands).
 - Select the interface language (Deutsch / Polski / English).
 - Choose a specific microphone from the dropdown.
 - Choose automatic Vulkan processing, a detected Vulkan GPU, or CPU-only processing.
 - Optionally keep active Whisper models loaded in memory for faster subsequent transcriptions.
-- Select the Whisper model size (`tiny` → `large`; larger = more accurate but slower).
+- Select the Whisper model size (`tiny` â†’ `large`; larger = more accurate but slower).
 - Enable live transcription if you want stable partial text to be inserted during an active recording.
 - Enable **local text optimization** and combine its independent options: improve punctuation/paragraphs, remove clear repetitions and fillers, and cautiously redact for readability. Optionally translate the final result into German, Polish, English, French, or Dutch. The model runs only after final transcription, so live text remains responsive.
 
@@ -196,10 +205,10 @@ available separately and is never inserted as a successful translation.
 
 ### Corrections, audio import and session recordings (1.2.0)
 
-- **Settings → Correction rules:** add literal whole-word/phrase replacements,
-  e.g. `Organize → orgAnice`. Matching ignores case; the longest match wins and
+- **Settings â†’ Correction rules:** add literal whole-word/phrase replacements,
+  e.g. `Organize â†’ orgAnice`. Matching ignores case; the longest match wins and
   replacements do not cascade. Empty replacements delete a matched word. Rules
-  persist atomically in settings.json. Protected names survive text processing.
+  persist atomically in a separate profile-level JSON file. Protected names survive text processing.
 - **Open audio file:** import WAV, MP3, M4A or FLAC through local FFmpeg. Choose a
   source language (including auto detection), speech model and optional translation.
   File imports never paste automatically or interpret spoken keyboard commands.
@@ -209,7 +218,7 @@ available separately and is never inserted as a successful translation.
 - **Long recordings:** audio is recorded to disk, processed in <=30-second windows
   with a one-second overlap, pause-aware boundaries and Silero VAD. Successful
   sections survive retries. The final partial window is always processed.
-- **Settings → Models:** check the versioned catalogue, download verified models,
+- **Settings â†’ Models:** check the versioned catalogue, download verified models,
   and choose speech/text models independently. `large` still means `large-v3`.
   Turbo and Qwen alternatives are candidates, not automatic quality upgrades.
 
@@ -246,6 +255,36 @@ The optional live mode keeps the current push-to-talk workflow, but starts trans
 - For the best latency, `tiny` or `base` are recommended in live mode.
 
 Settings are saved to `%APPDATA%\WinWhisperPlus\settings.json`.
+
+Correction rules are stored separately in
+`%APPDATA%\WinWhisperPlus\correction-rules.json`, shared by all installations
+and Debug/Release builds for the current user. Existing embedded rules migrate
+automatically; an existing rule file takes precedence. In **Settings â†’ Correction
+rules**, edit the displayed path or use **â€¦** to select a file. The compact folder
+button reveals it in Explorer. Relative paths resolve against the configuration
+directory, never the working directory. Selecting an existing file loads its
+rules; a new path copies the current rules when saving and preserves the old file.
+Cancel creates no file and does not change the active path.
+
+The file is indented UTF-8 JSON and can be edited in any text editor:
+
+```json
+{
+  "schema_version": 1,
+  "rules": [
+    {"enabled": true, "source": "Organize", "target": "orgAnice"}
+  ]
+}
+```
+
+Save external edits before starting the next dictation or recognition job.
+Rules are captured at recording/job start; running jobs and retries retain their
+original rules. The settings dialog also offers **Reload** and detects external
+edits before overwriting. Invalid files produce an explicit warning and retain
+the last valid rules. With corrections enabled and no valid rules available,
+new jobs are blocked until the file is repaired or corrections are disabled.
+Window-position saves never overwrite the rule file. Older WinWhisperPlus
+versions continue to use their embedded rules and do not share this new file.
 Statistics are saved to `%APPDATA%\WinWhisperPlus\statistics.json`.
 
 ## Running Tests
@@ -259,22 +298,22 @@ pytest tests/
 
 ```
 WinWhisperPlus/
-├── main.py                  # Entry point
-├── app.py                   # Application orchestrator
-├── config/
-│   └── settings.py          # Settings persistence (JSON)
-├── core/
-│   ├── recorder.py          # Microphone capture (sounddevice)
-│   ├── transcriber.py       # Whisper inference wrapper
-│   ├── text_inserter.py     # Clipboard-based text paste
-│   └── hotkey_manager.py    # System-wide hotkeys (keyboard lib)
-├── gui/
-│   ├── tray_icon.py         # System tray icon & menu (PyQt6)
-│   ├── status_window.py     # Floating status indicator
-│   └── settings_window.py   # Settings dialog
-└── tests/
-    ├── test_settings.py
-    ├── test_recorder.py
-    ├── test_transcriber.py
-    └── test_hotkey_manager.py
+â”œâ”€â”€ main.py                  # Entry point
+â”œâ”€â”€ app.py                   # Application orchestrator
+â”œâ”€â”€ config/
+â”‚   â””â”€â”€ settings.py          # Settings persistence (JSON)
+â”œâ”€â”€ core/
+â”‚   â”œâ”€â”€ recorder.py          # Microphone capture (sounddevice)
+â”‚   â”œâ”€â”€ transcriber.py       # Whisper inference wrapper
+â”‚   â”œâ”€â”€ text_inserter.py     # Clipboard-based text paste
+â”‚   â””â”€â”€ hotkey_manager.py    # System-wide hotkeys (keyboard lib)
+â”œâ”€â”€ gui/
+â”‚   â”œâ”€â”€ tray_icon.py         # System tray icon & menu (PyQt6)
+â”‚   â”œâ”€â”€ status_window.py     # Floating status indicator
+â”‚   â””â”€â”€ settings_window.py   # Settings dialog
+â””â”€â”€ tests/
+    â”œâ”€â”€ test_settings.py
+    â”œâ”€â”€ test_recorder.py
+    â”œâ”€â”€ test_transcriber.py
+    â””â”€â”€ test_hotkey_manager.py
 ```

@@ -13,6 +13,7 @@ def job_app(tmp_path):
                       transcriber_final=FakeTranscriber("Organize enter"), text_optimizer=FakeTextOptimizer(), text_sink=sink)
     app._session = SessionStore(tmp_path / "sessions")
     app._settings.correction_rules = [{"source": "Organize", "target": "orgAnice"}]
+    app._settings.save_rules()
     app.start()
     yield app, sink
     app.shutdown()
@@ -22,6 +23,7 @@ def test_recording_uses_settings_snapshot_and_retains_audio(job_app):
     app, sink = job_app
     app._start_recording()
     app._settings.correction_rules = []
+    app._settings.save_rules()
     app._stop_recording()
     assert app.wait_for_idle()
     job = app._session.jobs[0]
@@ -39,6 +41,7 @@ def test_re_recognition_adds_version_without_automatic_insertion(job_app):
     assert app.wait_for_idle()
     job = app._session.jobs[0]
     app._settings.correction_rules = []
+    app._settings.save_rules()
     app._submit_job(job, app._settings)
     assert app.wait_for_idle()
     assert len(job.versions) == 2
@@ -75,3 +78,63 @@ def test_unused_selected_text_model_does_not_download_or_block_dictation(job_app
     assert app.wait_for_idle()
     assert app._session.jobs[0].versions[0].status == "complete"
     assert sink.inserts == ["orgAnice"]
+
+
+def test_external_rules_refresh_before_recording_and_new_recognition(job_app):
+    from core.rule_store import RuleStore
+    app, sink = job_app
+    store = RuleStore(app._settings.correction_rules_path)
+    store.save([{"source": "Organize", "target": "Vorher"}])
+    app._start_recording()
+    store.save([{"source": "Organize", "target": "Nachher"}])
+    app._stop_recording()
+    assert app.wait_for_idle()
+    job = app._session.jobs[0]
+    assert job.versions[0].text == "Vorher"
+    app._submit_job(job, app._settings)
+    assert app.wait_for_idle()
+    assert job.versions[1].text == "Nachher"
+
+
+def test_missing_rule_file_blocks_without_valid_cache(job_app):
+    app, sink = job_app
+    app._settings._rules_available = False
+    app._settings.correction_rules_path.unlink()
+    app._start_recording()
+    assert not app._recorder.is_recording
+    assert not app._session.jobs
+
+
+def test_retry_keeps_original_rules_after_external_edit(job_app):
+    from core.rule_store import RuleStore
+    app, sink = job_app
+    app._start_recording()
+    app._stop_recording()
+    assert app.wait_for_idle()
+    job = app._session.jobs[0]
+    version = job.versions[0]
+    RuleStore(app._settings.correction_rules_path).save([])
+    app._submit_job(job, version.settings_snapshot, retry=version)
+    assert app.wait_for_idle()
+    assert version.text == "orgAnice"
+
+
+def test_retry_after_rule_load_failure_reloads_repaired_file(job_app):
+    import wave
+    from core.rule_store import RuleStore
+    app, sink = job_app
+    job = app._session.create(source="file")
+    with wave.open(str(job.audio_path), "wb") as output:
+        output.setparams((1, 2, 16000, 0, "NONE", ""))
+        output.writeframes(bytes(32000))
+    app._settings.correction_rules_path.write_text("broken", encoding="utf-8")
+    app._settings._rules_available = False
+    app._submit_job(job, app._settings)
+    assert job.versions[0].status == "failed"
+    RuleStore(app._settings.correction_rules_path).save([
+        {"source": "Organize", "target": "orgAnice"}])
+    app._retry_job(job)
+    assert app.wait_for_idle()
+    assert len(job.versions) == 1
+    assert job.versions[0].status == "complete"
+    assert job.versions[0].text == "orgAnice enter"

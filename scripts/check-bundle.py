@@ -22,4 +22,4 @@ assert completed.returncode == 0, f"Bundle failed: {completed.returncode}\n{comp
 assert report.read_text(encoding="utf-8") == "OK", report.read_text(encoding="utf-8")
 sessions = profile / "WinWhisperPlus/sessions"
 assert not list(sessions.glob("*/owner.json")), "Session not cleaned on graceful exit"
-print("Frozen GUI, model catalogue, FFmpeg, both runtimes and session cleanup: OK")
+print("Frozen GUI, single-instance startup, model catalogue, FFmpeg, both runtimes and session cleanup: OK")

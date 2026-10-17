@@ -19,6 +19,7 @@ QFontDatabase.addApplicationFont("C:/Windows/Fonts/arial.ttf")
 app.setFont(QFont("Arial", 10))
 settings = Settings()
 settings.correction_rules = [{"source": "Organize", "target": "orgAnice"}, {"source": "CRM System", "target": "CRM-System"}]
+settings.save_rules()
 settings_module.list_microphones = lambda: []
 settings_module.list_vulkan_devices = lambda: [(0, "AMD Radeon RX 9070 XT")]
 output = root / "docs/images/manual"

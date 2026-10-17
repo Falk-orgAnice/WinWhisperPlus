@@ -22,6 +22,7 @@ def test_protection_detects_missing_and_duplicate_names():
 def test_rules_persist_and_defaults_are_independent():
     settings = Settings()
     settings.correction_rules = [{"source": "Organize", "target": "orgAnice"}]
+    settings.save_rules()
     settings.save()
     assert Settings().correction_rules == settings.correction_rules
     snapshot = settings.snapshot()
