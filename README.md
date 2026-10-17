@@ -75,13 +75,15 @@ Bin\Release\_internal\...
 ```
 
 Debug includes a console and PyInstaller bootloader diagnostics; Release is a
-windowed application without a console. Both contain the complete local runtimes,
-FFmpeg and bundled Qwen model. Keep each entire configuration directory together.
+windowed application without a console. Both contain the local runtimes and
+FFmpeg. The Qwen text model downloads to the user's model directory on first
+launch. Keep each entire configuration directory together.
 The Visual Studio run command launches the selected executable; Python source
 debugging still requires a Python debugger rather than the native EXE debugger.
 
-The first build installs dependencies, builds missing x64 runtimes and downloads
-the bundled text model (several GB). Later builds reuse these caches. Build and
+The first build installs dependencies and builds missing x64 runtimes. The text
+model is downloaded by each user on first launch, not included in the build.
+Later builds reuse the runtime caches. Build and
 Rebuild keep `VERSION` unchanged and create no installer or signed release.
 Clean/Rebuild affect only the selected configuration; the other configuration,
 `.venv-build`, and shared runtime/model caches remain intact.
@@ -103,9 +105,10 @@ End users do **not** need to install Python when you distribute the PyInstaller
 release package. They only need to unzip the package and start
 `WinWhisperPlus.exe`.
 
-The release also contains the optional Qwen3-4B text model (several GB) and a
-local `llama.cpp` runtime. It is checked by SHA-256 before use and is contacted
-only through `127.0.0.1`; recognition text is never sent to a cloud service.
+The release contains a local `llama.cpp` runtime. The optional Qwen3-4B text
+model (about 2.5 GB) downloads on first launch, is checked by SHA-256 before use,
+and is stored with the other user models. It is contacted only through
+`127.0.0.1`; recognition text is never sent to a cloud service.
 
 Build the release package on a Windows development machine with Python 3.10 to
 3.14 64-bit and Inno Setup 7 or 6 installed:
@@ -191,8 +194,8 @@ reduces latency, but keeps RAM or GPU memory in use while the application runs.
 
 ### Local text optimization
 
-Text optimization is disabled by default. When enabled, the bundled local
-Qwen3-4B Q4_K_M model receives only the final recognized text and returns plain
+Text optimization is disabled by default. The default local Qwen3-4B model
+downloads in the background on first launch. When enabled, it receives only the final recognized text and returns plain
 text with paragraphs and `-` lists; HTML and Markdown formatting are rejected.
 Formatting, cleanup, redaction, and translation target can be combined in the
 settings. Translation is available between the five dictation languages and

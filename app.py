@@ -353,6 +353,20 @@ class Application(QObject):
         if self._settings.live_transcription_enabled:
             threading.Thread(target=self._load_live_model, daemon=True).start()
         threading.Thread(target=self._load_final_model, daemon=True).start()
+        threading.Thread(target=self._prepare_text_model, daemon=True).start()
+
+    def _prepare_text_model(self) -> None:
+        """Fetch the selected text model in the background on first launch."""
+        if self._session is not None and any(j.running for j in self._session.jobs):
+            return
+        try:
+            LOGGER.info("Preload Textmodell gestartet | model=%s", self._settings.text_model)
+            self._text_optimizer.prepare()
+            LOGGER.info("Preload Textmodell fertig | model=%s", self._settings.text_model)
+        except Exception:  # noqa: BLE001
+            # Text optimization remains optional; the normal job pipeline retries
+            # preparation and reports a user-facing error if it is needed offline.
+            LOGGER.exception("Preload Textmodell fehlgeschlagen")
 
     def _load_live_model(self) -> None:
         self._model_preload_started.emit("live")

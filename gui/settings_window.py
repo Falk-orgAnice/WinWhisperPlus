@@ -386,7 +386,6 @@ class SettingsWindow(QDialog):
     def _refresh_text_models(self):
         selected = self._text_model_combo.currentData() or self._settings.text_model
         self._text_model_combo.clear()
-        self._text_model_combo.addItem(f"Qwen3-4B ({tr('bundled', self._settings)})", "bundled-qwen3-4b")
         for model in self._model_manager.manager.catalog.values():
             if model.kind == "text":
                 self._text_model_combo.addItem(model.name, model.id)
@@ -570,8 +569,6 @@ class SettingsWindow(QDialog):
         if not self._change_rules_path():
             return
         for model_id in (self._final_model_combo.currentText(), self._text_model_combo.currentData()):
-            if model_id == "bundled-qwen3-4b":
-                continue
             selected = self._model_manager.manager.catalog.get("large-v3" if model_id == "large" else model_id)
             activated = self._model_manager.manager.installed_spec(selected.id) if selected else None
             if selected is None or not (selected.compatible or (activated and activated.compatible)):

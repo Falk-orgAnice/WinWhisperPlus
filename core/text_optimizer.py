@@ -25,8 +25,6 @@ from core.models import Cancelled, ModelManager
 from core.cancellation import interrupt_on_cancel
 
 
-MODEL_FILENAME = "Qwen_Qwen3-4B-Q4_K_M.gguf"
-MODEL_SHA256_FILENAME = "text-model.sha256"
 _DEFAULT_TIMEOUT_SECONDS = 45.0
 LOGGER = logging.getLogger("winwhisperplus")
 _MESSAGE_GREETING_PATTERN = re.compile(
@@ -179,12 +177,12 @@ class TextOptimizer:
         model_hash_path: str | Path | None = None,
         request_timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         request_callable: Callable[[dict], object] | None = None,
-        model_id: str = "bundled-qwen3-4b",
+        model_id: str = "qwen3-4b-instruct-2507",
     ) -> None:
         self._compute_device = compute_device
         self._executable_path = Path(executable_path) if executable_path else self._find_executable()
         self._model_path = Path(model_path) if model_path else self._selected_model_path(model_id)
-        self._model_hash_path = Path(model_hash_path) if model_hash_path else self._model_path.with_name(MODEL_SHA256_FILENAME)
+        self._model_hash_path = Path(model_hash_path) if model_hash_path else None
         self._request_timeout_seconds = request_timeout_seconds
         self._request_callable = request_callable
         self._lock = threading.Lock()
@@ -205,27 +203,23 @@ class TextOptimizer:
             self._stop_server()
             self._model_id = model_id
             self._model_path = path
-            self._model_hash_path = path.with_name(MODEL_SHA256_FILENAME)
+            self._model_hash_path = None
             self._hash_verified = False
             self._verified_stat = None
 
     def _selected_model_path(self, model_id):
-        if model_id == "bundled-qwen3-4b":
-            return self._find_model()
         manager = ModelManager()
         activated = manager.installed_spec(model_id)
         return manager.path(activated or manager.catalog[model_id])
 
     def prepare(self, *, cancel=None, progress=None):
-        """Download only when actual text work is required, after recognition."""
+        """Download and verify the selected model before it is used."""
         if cancel and cancel.is_set():
             raise Cancelled("Cancelled")
-        if self._model_id == "bundled-qwen3-4b":
-            return
-        LOGGER.info("Preparing text model %s", self._model_id)
-        manager = ModelManager(self._model_path.parent)
-        path = manager.ensure(self._model_id, cancel, progress)
         with self._lock:
+            LOGGER.info("Preparing text model %s", self._model_id)
+            manager = ModelManager(self._model_path.parent)
+            path = manager.ensure(self._model_id, cancel, progress)
             if path != self._model_path:
                 self._stop_server()
                 self._model_path = path
@@ -431,26 +425,23 @@ class TextOptimizer:
     def _verify_model_hash(self) -> None:
         if self._hash_verified:
             return
-        if self._model_id != "bundled-qwen3-4b":
-            manager = ModelManager(self._model_path.parent)
-            activated = manager.installed_spec(self._model_id)
-            model = activated or manager.catalog[self._model_id]
-            if not model.compatible or not manager.verify(model):
+        if self._model_hash_path is not None:
+            expected = self._model_hash_path.read_text(encoding="ascii").split()[0].lower()
+            digest = hashlib.sha256()
+            with self._model_path.open("rb") as model_file:
+                for chunk in iter(lambda: model_file.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            if digest.hexdigest() != expected:
                 raise TextOptimizationError("Text model checksum mismatch")
             self._hash_verified = True
-            self._verified_stat = (self._model_path.stat().st_size, self._model_path.stat().st_mtime_ns)
             return
-        if not self._model_hash_path.is_file():
-            raise TextOptimizationError(f"Text model checksum not found: {self._model_hash_path}")
-        expected = self._model_hash_path.read_text(encoding="ascii").split()[0].lower()
-        digest = hashlib.sha256()
-        with self._model_path.open("rb") as model_file:
-            for chunk in iter(lambda: model_file.read(1024 * 1024), b""):
-                digest.update(chunk)
-        actual = digest.hexdigest()
-        if expected != actual:
-            raise TextOptimizationError("Bundled text model checksum mismatch")
+        manager = ModelManager(self._model_path.parent)
+        activated = manager.installed_spec(self._model_id)
+        model = activated or manager.catalog[self._model_id]
+        if not model.compatible or not manager.verify(model):
+            raise TextOptimizationError("Text model checksum mismatch")
         self._hash_verified = True
+        self._verified_stat = (self._model_path.stat().st_size, self._model_path.stat().st_mtime_ns)
 
     def _stop_server(self) -> None:
         if self._server_process is not None and self._server_process.poll() is None:
@@ -484,7 +475,3 @@ class TextOptimizer:
     @classmethod
     def _find_executable(cls) -> Path:
         return cls._find_runtime_dir() / "llama-server.exe"
-
-    @classmethod
-    def _find_model(cls) -> Path:
-        return cls._find_runtime_dir() / "models" / MODEL_FILENAME

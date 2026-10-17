@@ -47,13 +47,11 @@ if not (textoptimizer_dir / "llama-server.exe").is_file():
     raise SystemExit(
         "llama.cpp text optimizer runtime missing. Run scripts/build-release.ps1, which builds it before PyInstaller."
     )
-if not (textoptimizer_dir / "models" / "Qwen_Qwen3-4B-Q4_K_M.gguf").is_file():
-    raise SystemExit(
-        "Qwen3 text optimizer model missing. Run scripts/build-release.ps1 to download the bundled model."
-    )
-if not (textoptimizer_dir / "models" / "text-model.sha256").is_file():
-    raise SystemExit("Qwen3 text optimizer checksum missing. Run scripts/build-release.ps1.")
-datas.append((str(textoptimizer_dir), "textoptimizer"))
+# Package the llama.cpp runtime only. Models are downloaded into the user's
+# model directory on first launch; exclude cached build models from releases.
+for runtime_file in textoptimizer_dir.rglob("*"):
+    if runtime_file.is_file() and "models" not in runtime_file.relative_to(textoptimizer_dir).parts:
+        datas.append((str(runtime_file), str(Path("textoptimizer") / runtime_file.relative_to(textoptimizer_dir).parent)))
 
 hiddenimports = [
     "PyQt6.QtSvg",

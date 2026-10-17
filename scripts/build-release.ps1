@@ -35,12 +35,6 @@ $llamaCppWorkDir = Join-Path $env:TEMP "wwp-llama"
 $llamaCppSourceDir = Join-Path $llamaCppWorkDir "src"
 $llamaCppBuildDir = Join-Path $llamaCppWorkDir "build"
 $textOptimizerRuntimeDir = Join-Path $repoRoot "build\textoptimizer-runtime"
-$textModelDir = Join-Path $textOptimizerRuntimeDir "models"
-$textModelFileName = "Qwen_Qwen3-4B-Q4_K_M.gguf"
-$textModelPath = Join-Path $textModelDir $textModelFileName
-$textModelRevision = "cb76885dc66d50759b207c5a48c4e78dfa00c638"
-$textModelSha256 = "fbe1d5edd4ce802ae3ae7c7e4ab7d09789d697fdac1fc7929f8df4ca3c41bae3"
-$textModelUrl = "https://huggingface.co/bartowski/Qwen_Qwen3-4B-GGUF/resolve/$textModelRevision/$textModelFileName"
 
 function Invoke-Step {
     param(
@@ -253,27 +247,6 @@ function Build-TextOptimizerRuntime {
     Copy-Item -Path (Join-Path $llamaCppSourceDir "LICENSE") `
         -Destination (Join-Path $textOptimizerRuntimeDir "LICENSE-llama.cpp") -Force
 
-    New-Item -ItemType Directory -Force -Path $textModelDir | Out-Null
-    Write-Host "Lade Qwen3-4B Q4_K_M Textmodell (einmalig fuer das Release)..."
-    $curlExe = Get-Command curl.exe -ErrorAction SilentlyContinue
-    if (-not $curlExe) {
-        throw "curl.exe wurde nicht gefunden. Es wird fuer den robusten Modell-Download benoetigt."
-    }
-    Invoke-NativeCommand {
-        & $curlExe.Source --fail --location --retry 3 --retry-delay 2 `
-            --output $textModelPath $textModelUrl
-    } "Das Qwen3-Modell konnte nicht heruntergeladen werden."
-    if ((Get-Item $textModelPath).Length -lt 1GB) {
-        throw "Das heruntergeladene Qwen3-Modell ist unerwartet klein und wird nicht paketiert."
-    }
-    $modelHash = (Get-FileHash -Path $textModelPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($modelHash -ne $textModelSha256) {
-        throw "Das Textmodell stimmt nicht mit der festgelegten Upstream-Pruefsumme ueberein."
-    }
-    Set-Content -Path (Join-Path $textModelDir "text-model.sha256") `
-        -Value "$modelHash  $textModelFileName" -NoNewline -Encoding ascii
-    Invoke-WebRequest -Uri "https://www.apache.org/licenses/LICENSE-2.0.txt" `
-        -OutFile (Join-Path $textOptimizerRuntimeDir "LICENSE-Qwen3-Apache-2.0.txt")
     $env:WINWHISPERPLUS_TEXTOPTIMIZER_DIR = $textOptimizerRuntimeDir
 }
 
@@ -415,9 +388,8 @@ Invoke-Step "Baue whisper.cpp mit Vulkan" {
 }
 
 Invoke-Step "Baue lokalen Textoptimierer mit Vulkan" {
-    if ($ReuseRuntimes -and (Test-Path (Join-Path $textOptimizerRuntimeDir "llama-server.exe")) -and
-        (Test-Path $textModelPath) -and (Test-Path (Join-Path $textModelDir "text-model.sha256"))) {
-        Write-Host "Verwende vorhandene llama.cpp-Laufzeit und Qwen-Modell."
+    if ($ReuseRuntimes -and (Test-Path (Join-Path $textOptimizerRuntimeDir "llama-server.exe"))) {
+        Write-Host "Verwende vorhandene llama.cpp-Laufzeit."
     } else {
         Build-TextOptimizerRuntime
     }

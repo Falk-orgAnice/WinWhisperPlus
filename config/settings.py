@@ -41,7 +41,7 @@ DEFAULT_SETTINGS = {
     "correction_rules_enabled": True,
     "correction_rules": [],
     "correction_rules_path": None,
-    "text_model": "bundled-qwen3-4b",
+    "text_model": "qwen3-4b-instruct-2507",
 }
 
 LANGUAGES = {
@@ -99,6 +99,8 @@ class Settings:
                     return
                 if "final_whisper_model" not in stored and "whisper_model" in stored:
                     stored["final_whisper_model"] = stored["whisper_model"]
+                if stored.get("text_model") == "bundled-qwen3-4b":
+                    stored["text_model"] = "qwen3-4b-instruct-2507"
                 # Migrate the former exclusive optimization profile to the
                 # independently combinable options introduced in 1.1.4.
                 if "text_optimization_profile" in stored and not any(
