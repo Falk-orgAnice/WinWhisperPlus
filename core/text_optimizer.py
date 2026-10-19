@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 from core.models import Cancelled, ModelManager
+from utils.runtime import runtime_executable, select_runtime
 from core.cancellation import interrupt_on_cancel
 
 
@@ -180,9 +181,12 @@ class TextOptimizer:
         model_id: str = "qwen3-4b-instruct-2507",
     ) -> None:
         self._compute_device = compute_device
-        self._executable_path = Path(executable_path) if executable_path else self._find_executable()
-        self._model_path = Path(model_path) if model_path else self._selected_model_path(model_id)
-        self._model_hash_path = Path(model_hash_path) if model_hash_path else None
+        self._executable_path = Path(executable_path).resolve() if executable_path else self._find_executable()
+        self._custom_executable = executable_path is not None
+        self._runtime_selected = False
+        self._effective_compute_device = compute_device
+        self._model_path = Path(model_path).resolve() if model_path else self._selected_model_path(model_id)
+        self._model_hash_path = Path(model_hash_path).resolve() if model_hash_path else None
         self._request_timeout_seconds = request_timeout_seconds
         self._request_callable = request_callable
         self._lock = threading.Lock()
@@ -318,6 +322,9 @@ class TextOptimizer:
             if self._compute_device != compute_device:
                 self._compute_device = compute_device
                 self._stop_server()
+                self._runtime_selected = False
+            if self._custom_executable:
+                self._effective_compute_device = compute_device
 
     def close(self) -> None:
         with self._lock:
@@ -383,6 +390,12 @@ class TextOptimizer:
             raise TextOptimizationError("Invalid local llama.cpp response schema") from exc
 
     def _ensure_server(self) -> None:
+        if not self._runtime_selected and not self._custom_executable:
+            try:
+                self._executable_path, self._effective_compute_device = select_runtime("textoptimizer", self._compute_device)
+            except RuntimeError as exc:
+                raise TextOptimizationError(str(exc)) from exc
+            self._runtime_selected = True
         if self._server_process is not None and self._server_process.poll() is None:
             return
         if not self._executable_path.is_file():
@@ -398,12 +411,13 @@ class TextOptimizer:
             "--port", str(port),
             "--ctx-size", "8192",
             "--parallel", "1",
-            "--n-gpu-layers", "0" if self._compute_device == "cpu" else "999",
+            "--n-gpu-layers", "0" if self._effective_compute_device == "cpu" else "999",
         ]
         if self._compute_device.startswith("gpu:"):
             command.extend(["--device", f"Vulkan{self._compute_device[4:]}"])
         self._server_process = subprocess.Popen(
             command,
+            cwd=self._executable_path.parent,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -474,4 +488,4 @@ class TextOptimizer:
 
     @classmethod
     def _find_executable(cls) -> Path:
-        return cls._find_runtime_dir() / "llama-server.exe"
+        return runtime_executable("textoptimizer")

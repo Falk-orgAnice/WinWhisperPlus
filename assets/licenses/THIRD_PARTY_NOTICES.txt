@@ -1,7 +1,7 @@
 WinWhisperPlus local text optimization notices
 ==============================================
 
-This release bundles the following components for optional local text
+This release uses the following components for optional local text
 optimization. They are used only on the user's computer and receive text only
 through the loopback interface (127.0.0.1).
 
@@ -17,9 +17,9 @@ Original model: https://huggingface.co/Qwen/Qwen3-4B
 GGUF quantization: https://huggingface.co/bartowski/Qwen_Qwen3-4B-GGUF
 License: Apache License 2.0
 
-The release build records the SHA-256 hash of the exact GGUF file in
-textoptimizer/models/text-model.sha256. WinWhisperPlus verifies this hash
-before it starts the local model server.
+Model weights are downloaded to the current user's profile, not bundled.
+The selected model revision, source URL and SHA-256 are pinned in
+assets/model-catalog.json and checked before use.
 
 whisper.cpp 1.9.4 and Whisper / Silero VAD
 ---------------------------------------
@@ -50,3 +50,28 @@ Original models: https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507
                  https://huggingface.co/Qwen/Qwen3.5-4B
 GGUF quantizations: unsloth repositories pinned in assets/model-catalog.json.
 License: Apache-2.0. These models are optional downloads, not bundled defaults.
+
+Portable runtime deployment
+---------------------------
+The package includes Microsoft Visual C++ CRT and OpenMP redistributable DLLs
+from the build machine's licensed Visual Studio VC/Redist/MSVC directory.
+These Microsoft components remain subject to their applicable Microsoft
+software license terms. They are deployed application-locally; the application
+does not run a system-wide Visual C++ Redistributable installer.
+
+Application-local Vulkan Loader
+-------------------------------
+Project: https://github.com/KhronosGroup/Vulkan-Loader
+Source tag: v1.4.350, built for x64 with matching Vulkan-Headers v1.4.350.
+License: Apache-2.0; cJSON is MIT-licensed.
+The loader, LICENSE-Vulkan-Loader.txt and LICENSE-cJSON.txt are included beside
+the GPU executables. CPU-only runtimes do not include or require the loader.
+No graphics driver is bundled or installed.
+
+Verified HTTPS downloads
+------------------------
+certifi: https://github.com/certifi/python-certifi
+Mozilla CA root certificates; MPL-2.0 (license in licenses/certifi/LICENSE).
+truststore: https://github.com/sethmlarson/truststore
+Native platform certificate validation; MIT (license in licenses/truststore/LICENSE).
+The CA bundle is used in memory, without installing certificates into Windows.

@@ -3,6 +3,7 @@ import threading
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, QPushButton, QMessageBox, QProgressDialog
 from core.models import ModelManager, Cancelled, CatalogNotPublished
+from utils.downloads import DownloadCertificateError
 from config.localization import tr
 
 
@@ -97,6 +98,8 @@ class ModelManagerWidget(QWidget):
         self.download.setEnabled(True)
         if isinstance(error, CatalogNotPublished):
             QMessageBox.information(self, tr("models", self.settings), tr("catalog_not_published", self.settings))
+        elif isinstance(error, DownloadCertificateError):
+            QMessageBox.warning(self, tr("models", self.settings), tr("download_certificate_error", self.settings, host=error.host))
         elif error and not isinstance(error, Cancelled):
             QMessageBox.warning(self, tr("models", self.settings), str(error))
         self.refresh()

@@ -5,7 +5,10 @@ This never runs in the application or as an automatic build step.
 """
 import json
 from pathlib import Path
-import urllib.request
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from utils.downloads import open_https
 
 SOURCES = [
     ("ggerganov/whisper.cpp", "speech", [(m, f"ggml-{m}.bin") for m in
@@ -19,7 +22,7 @@ SOURCES = [
 if __name__ == "__main__":
     models = []
     for repo, kind, selections in SOURCES:
-        with urllib.request.urlopen(f"https://huggingface.co/api/models/{repo}?blobs=true", timeout=30) as response:
+        with open_https(f"https://huggingface.co/api/models/{repo}?blobs=true", timeout=30) as response:
             info = json.load(response)
         files = {f["rfilename"]: f for f in info["siblings"]}
         for model_id, filename in selections:

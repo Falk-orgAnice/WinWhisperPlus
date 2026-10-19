@@ -41,6 +41,61 @@ ROCm, CUDA, and the Python package `openai-whisper` are not required.
 
 ## Installation
 
+### Portable Edition (Windows x64)
+
+The Portable Edition runs with a normal Windows user account. No administrator
+rights, Python installation, VC Redistributable installer, or Vulkan SDK are
+required. Download `WinWhisperPlus-Portable-<version>-win-x64.zip`, extract the
+**entire** archive to a folder in your user profile, and run `WinWhisperPlus.exe`.
+Keep `_internal` beside the EXE. The program writes its data into your user
+profile, so the application folder can be read-only after extraction.
+
+Alternatively, `WinWhisperPlus-Portable-Setup-<version>.exe` installs only for
+the current user, by default into
+`%LOCALAPPDATA%\Programs\WinWhisperPlus Portable`. It creates user Start menu
+entries and an optional desktop shortcut. It cannot request an all-users
+installation. Uninstall removes the program and shortcuts and keeps user data.
+
+Settings, correction rules, statistics and logs stay in
+`%APPDATA%\WinWhisperPlus`. Models and temporary session audio stay in
+`%LOCALAPPDATA%\WinWhisperPlus\models` and `sessions`. The ZIP, Portable setup
+and existing installations share these paths and the per-user single-instance
+guard. There is no migration or separate Portable profile.
+
+On first launch, the selected speech model and selected text model download
+into the user's model directory and are verified. Additional models download
+when needed; models are not included in either distribution. Existing valid
+models are reused and work offline. Internet access and sufficient free disk
+space are needed for new model downloads; a failed download can be retried
+without reinstalling the program.
+
+HTTPS downloads use Windows CryptoAPI through `truststore` and a bundled Mozilla
+CA certificate set from `certifi`. A fresh Windows VM does not need a separate
+certificate installation. The CA bundle is loaded in memory; no certificates
+are added to Windows stores. Existing Windows user/system trust settings are
+also used. Certificate chains, validity dates and hostnames remain verified;
+HTTP redirects from HTTPS are rejected. If verification still fails, check the
+VM clock and any corporate HTTPS proxy rather than disabling verification.
+
+Both Vulkan and independent CPU-only runtimes are bundled. **CPU** never loads
+Vulkan. **Automatic** uses Vulkan if its runtime starts and a GPU is available;
+otherwise it uses CPU. An explicitly selected unavailable GPU produces a
+message asking you to choose Automatic or CPU. GPU acceleration uses the
+computer's existing graphics driver; WinWhisperPlus installs no drivers.
+The x64 Khronos Vulkan loader (`vulkan-1.dll`, version 1.4.350) is included
+beside both GPU runtimes, under `_internal\whispercpp` and
+`_internal\textoptimizer`. No system Vulkan runtime installation is required.
+The loader alone does not provide a GPU driver: without one, Automatic uses CPU.
+The app checks for a loader before probing and suppresses native Windows DLL
+error dialogs; failures are handled by the application.
+Automatic text insertion into programs running as administrator is restricted
+by Windows; use an ordinary target application or copy text from history.
+
+To update the ZIP, quit WinWhisperPlus and extract the new version into a new
+folder in your profile. Start its EXE; settings and models are reused. To update
+the user installation, quit the app and run the newer Portable setup. Deleting
+an extracted folder also leaves user data intact.
+
 For development or direct source usage:
 
 ```bash
@@ -142,12 +197,14 @@ The script creates:
 dist\WinWhisperPlus\WinWhisperPlus.exe
 dist\WinWhisperPlus.zip
 dist\WinWhisperPlus-Setup-<version>.exe
+dist\WinWhisperPlus-Portable-<version>-win-x64.zip
+dist\WinWhisperPlus-Portable-Setup-<version>.exe
 ```
 
 Distribute `dist\WinWhisperPlus-Setup-<version>.exe` to the user, or use
 `dist\WinWhisperPlus.zip` for a portable-style package. On first use, Whisper
 may need internet access to download the selected model into the normal local
-Whisper cache. Settings and statistics are still stored below
+model directory `%LOCALAPPDATA%\WinWhisperPlus\models`. Settings and statistics are stored below
 `%APPDATA%\WinWhisperPlus`.
 
 ## Usage
@@ -169,7 +226,7 @@ The application starts minimised to the system tray.
 Double-click the tray icon or use the hotkey to start/stop recording.
 
 For end-user instructions with screenshots, see the German
-[Benutzerhandbuch](docs/benutzerhandbuch.md).
+[Benutzerhandbuch](<docs/WinWhisperPlus Benutzerhandbuch.md>).
 
 ## Configuration
 
@@ -233,11 +290,18 @@ Maintainers can run `scripts/refresh-model-catalog.py` to pin upstream revisions
 and checksums. Review and test candidates before publishing the generated
 `dist/model-catalog.json` as a GitHub release attachment. Until that attachment is
 published, update checks display an explicit notice that the online catalogue is
-not yet available; the bundled catalogue works offline. Version 1.2.1 downloads
-optional text models only when text processing or translation is requested, after
-speech recognition, and displays download/verification progress in the status
-window and history. Selecting a text model does not delay ordinary dictation.
+not yet available; the bundled catalogue works offline. The selected text model
+is prepared in the background on first launch. Recognition jobs also verify
+and, if necessary, download required models, displaying progress in the status
+window and history. Optional text processing runs after speech recognition.
 Runtime updates ship with program releases (whisper.cpp 1.9.4 / llama.cpp v0.6.0).
+CPU variants use the same pinned sources, without Vulkan or build-host-native
+CPU optimizations. They include a baseline x64 backend and CPU-specific backends;
+the runtime selects the best supported one on the target computer. Inference
+processes run in their own runtime directory to isolate backend discovery.
+Redistributable MSVC CRT/OpenMP DLLs from Visual Studio's
+`VC/Redist/MSVC` directory ship beside each inference executable (application
+local deployment); end users run no prerequisite setup.
 
 ### Microphone troubleshooting
 
@@ -296,6 +360,27 @@ Statistics are saved to `%APPDATA%\WinWhisperPlus\statistics.json`.
 pip install -r requirements-dev.txt
 pytest tests/
 ```
+
+Release builds automatically audit the executable manifest, x64 DLL imports,
+local dependencies (including the bundled Vulkan loader) and Vulkan-free CPU
+runtimes, then start the frozen app with an empty, isolated user profile. An
+additional packaged startup test hides all Vulkan drivers using `VK_DRIVER_FILES`
+and checks automatic CPU fallback. This changes only the test process environment.
+To repeat these checks manually:
+
+```powershell
+.\.venv-build\Scripts\python.exe scripts/check-bundle.py --package dist/WinWhisperPlus
+# Optional real HTTPS test (small verified VAD model, CDN redirects and GitHub):
+.\.venv-build\Scripts\python.exe scripts/check-bundle.py --package dist/WinWhisperPlus --check-downloads
+```
+
+For clean-machine acceptance, use a standard Windows 10/11 x64 account without
+Python, developer tools, additional VC runtimes or Vulkan. Check ZIP extraction
+and start, first-launch downloads, CPU dictation/text optimization, audio import,
+offline reuse of models, Portable setup/update, and uninstall without deleting
+shared user data. Confirm there is no UAC prompt and no write to the program
+folder, Program Files, ProgramData or HKLM. Target-application text insertion
+is tested with an ordinary (non-elevated) editor.
 
 ## Architecture
 

@@ -104,6 +104,7 @@ def test_selected_gpu_is_passed_to_cli(transcriber, monkeypatch):
 def test_list_vulkan_devices_parses_cli_inventory(tmp_path, monkeypatch):
     executable = tmp_path / "whisper-cli.exe"
     executable.touch()
+    (tmp_path / "vulkan-1.dll").touch()
     monkeypatch.setattr(
         "core.transcriber.subprocess.run",
         lambda *_args, **_kwargs: SimpleNamespace(

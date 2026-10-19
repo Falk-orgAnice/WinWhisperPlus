@@ -22,6 +22,7 @@ from config.localization import tr
 from config.settings import Settings
 from gui.status_window import StatusWindow
 from utils.single_instance import SingleInstance
+from utils.runtime import configure_runtime_error_mode
 
 
 def _startup_ui_settings():
@@ -38,6 +39,7 @@ def _startup_ui_settings():
 
 
 def main() -> int:
+    configure_runtime_error_mode()
     qapp = QApplication.instance() or QApplication(sys.argv)
     qapp.setQuitOnLastWindowClosed(False)  # keep running when windows are closed
     qapp.setApplicationName("WinWhisperPlus")
@@ -84,12 +86,42 @@ def _run(qapp) -> int:
         # Validate the frozen GUI and resources without recording, hotkeys or
         # multi-GB downloads. CI supplies isolated APPDATA/LOCALAPPDATA paths.
         from core.audio import find_ffmpeg
-        from core.transcriber import Transcriber
-        from core.text_optimizer import TextOptimizer
+        from utils.runtime import runtime_executable
         from utils.resources import resource_path
-        required = [find_ffmpeg(), Transcriber._find_executable(), TextOptimizer._find_executable(),
-                    TextOptimizer._find_model(), resource_path("assets/model-catalog.json")]
+        required = [find_ffmpeg(), resource_path("assets/model-catalog.json")]
+        for kind in ("whispercpp", "textoptimizer"):
+            for cpu in (False, True):
+                executable = runtime_executable(kind, cpu=cpu)
+                required.append(executable)
+                if kind == "whispercpp":
+                    required.append(executable.with_name("whisper-server.exe"))
         missing = [str(path) for path in required if not path.is_file()]
+        try:
+            import certifi
+            import ssl
+            from utils.downloads import create_download_context
+            context = create_download_context()
+            if not Path(certifi.where()).is_file() or context.verify_mode != ssl.CERT_REQUIRED or not context.check_hostname:
+                missing.append("Verified HTTPS context or bundled CA certificates unavailable")
+            if "--smoke-downloads" in sys.argv:
+                from core.models import ModelManager, CatalogNotPublished
+                manager = ModelManager()
+                manager.ensure("silero-v6.2.0")  # Small, verified real model; includes CDN redirects.
+                try:
+                    manager.refresh()
+                except CatalogNotPublished:
+                    pass  # HTTPS is verified even when this channel has no catalogue attachment.
+        except Exception as exc:
+            missing.append(f"HTTPS certificate/download check: {type(exc).__name__}: {exc}")
+        if "--smoke-no-vulkan" in sys.argv:
+            from utils.runtime import select_runtime
+            try:
+                for kind in ("whispercpp", "textoptimizer"):
+                    _, device = select_runtime(kind, "auto")
+                    if device != "cpu":
+                        missing.append(f"Expected automatic CPU fallback without Vulkan drivers: {kind}")
+            except Exception as exc:
+                missing.append(f"Automatic CPU fallback failed: {exc}")
         try:
             _check_instance_runtime()
         except Exception as exc:

@@ -1,4 +1,4 @@
-"""Speech transcription through the bundled whisper.cpp Vulkan runtime."""
+"""Speech transcription through the bundled whisper.cpp CPU/Vulkan runtimes."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import re
 import json
 import socket
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -19,6 +18,7 @@ from typing import Optional
 from core.audio import Segment
 from core.models import ModelManager, Cancelled
 from core.cancellation import interrupt_on_cancel
+from utils.runtime import runtime_executable, select_runtime, vulkan_devices
 
 import numpy as np
 
@@ -36,7 +36,6 @@ MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{filename
 COMPUTE_DEVICE_AUTO = "auto"
 COMPUTE_DEVICE_CPU = "cpu"
 SILENCE_RMS_THRESHOLD = 0.0001
-_VULKAN_DEVICE_PATTERN = re.compile(r"^ggml_vulkan:\s*(\d+)\s*=\s*(.*?)(?:\s*\|.*)?$")
 
 
 def list_vulkan_devices(executable_path: str | Path | None = None) -> list[tuple[int, str]]:
@@ -47,26 +46,7 @@ def list_vulkan_devices(executable_path: str | Path | None = None) -> list[tuple
     remains available on machines without a working Vulkan driver.
     """
     executable = Path(executable_path) if executable_path else Transcriber._find_executable()
-    if not executable.is_file():
-        return []
-    try:
-        completed = subprocess.run(
-            [str(executable), "--help"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=10,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-
-    devices: list[tuple[int, str]] = []
-    for line in f"{completed.stdout}\n{completed.stderr}".splitlines():
-        match = _VULKAN_DEVICE_PATTERN.match(line.strip())
-        if match:
-            devices.append((int(match.group(1)), match.group(2).strip()))
-    return devices
+    return vulkan_devices(executable)
 
 
 class Transcriber:
@@ -84,9 +64,12 @@ class Transcriber:
         self._model_name = model_name
         self._model_path: Path | None = None
         self._model_stat = None
-        self._executable_path = Path(executable_path) if executable_path else self._find_executable()
+        self._executable_path = Path(executable_path).resolve() if executable_path else self._find_executable()
+        self._custom_executable = executable_path is not None
+        self._runtime_selected = False
+        self._effective_compute_device = compute_device
         app_data = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home())
-        self._model_dir = Path(model_dir) if model_dir else Path(app_data) / "WinWhisperPlus" / "models"
+        self._model_dir = Path(model_dir).resolve() if model_dir else Path(app_data) / "WinWhisperPlus" / "models"
         self._lock = threading.Lock()
         self._compute_device = COMPUTE_DEVICE_AUTO
         self._keep_model_loaded = bool(keep_model_loaded)
@@ -103,6 +86,7 @@ class Transcriber:
     def load(self) -> None:
         """Pre-load the Whisper model (blocking).  Call once at startup."""
         with self._lock:
+            self._select_runtime()
             if self._model_path is None:
                 self._model_path = self._load_model()
                 self._remember_model_stat()
@@ -131,6 +115,7 @@ class Transcriber:
             return ""
 
         with self._lock:
+            self._select_runtime()
             if self._model_path is None:
                 self._model_path = self._load_model()
                 self._remember_model_stat()
@@ -173,7 +158,15 @@ class Transcriber:
         with self._lock:
             if self._compute_device != compute_device:
                 self._stop_server()
+                self._runtime_selected = False
             self._compute_device = compute_device
+            if self._custom_executable:
+                self._effective_compute_device = compute_device
+
+    def _select_runtime(self) -> None:
+        if not self._runtime_selected and not self._custom_executable:
+            self._executable_path, self._effective_compute_device = select_runtime("whispercpp", self._compute_device)
+            self._runtime_selected = True
 
     def set_keep_model_loaded(self, keep_model_loaded: bool) -> None:
         """Keep the selected model in a local whisper.cpp server process."""
@@ -202,6 +195,7 @@ class Transcriber:
         if len(audio) == 0 or float(np.sqrt(np.mean(np.asarray(audio) ** 2))) < SILENCE_RMS_THRESHOLD:
             return [], language
         with self._lock:
+            self._select_runtime()
             manager = ModelManager(self._model_dir)
             if self._model_path is None:
                 self._model_path = manager.ensure("large-v3" if self._model_name == "large" else self._model_name, cancel)
@@ -249,6 +243,7 @@ class Transcriber:
         return segments
 
     def _run_cli_segments(self, audio, language, cancel, *, no_context=False):
+        self._select_runtime()
         if not self._executable_path.is_file():
             raise RuntimeError("whisper.cpp runtime missing; build a release first")
         with tempfile.TemporaryDirectory(prefix="winwhisperplus-") as directory:
@@ -262,6 +257,7 @@ class Transcriber:
                 command.extend(["--temperature", "0.2"])
             self._append_compute_device_arguments(command)
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       cwd=self._executable_path.parent,
                                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             try:
                 while True:
@@ -298,6 +294,7 @@ class Transcriber:
         return Transcriber._server_segments({"segments": sections})
 
     def _run_cli(self, audio: np.ndarray, language: Optional[str]) -> str:
+        self._select_runtime()
         if not self._executable_path.is_file():
             raise RuntimeError(
                 "whisper.cpp executable not found. Build a release or set "
@@ -322,6 +319,7 @@ class Transcriber:
             self._append_compute_device_arguments(command)
             completed = subprocess.run(
                 command,
+                cwd=self._executable_path.parent,
                 capture_output=True,
                 text=True,
                 check=False,
@@ -338,6 +336,7 @@ class Transcriber:
 
     def _ensure_server(self) -> None:
         """Start a local server once so the model stays loaded between requests."""
+        self._select_runtime()
         assert self._model_path is not None
         if (
             self._server_process is not None
@@ -365,6 +364,7 @@ class Transcriber:
         self._append_compute_device_arguments(command)
         self._server_process = subprocess.Popen(
             command,
+            cwd=server_executable.parent,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -407,7 +407,7 @@ class Transcriber:
             return result if detailed else str(result.get("text", "")).strip()
 
     def _append_compute_device_arguments(self, command: list[str]) -> None:
-        if self._compute_device == COMPUTE_DEVICE_CPU:
+        if self._effective_compute_device == COMPUTE_DEVICE_CPU:
             command.append("--no-gpu")
         elif self._compute_device.startswith("gpu:"):
             command.extend(["--device", self._compute_device.removeprefix("gpu:")])
@@ -470,13 +470,7 @@ class Transcriber:
 
     @staticmethod
     def _find_executable() -> Path:
-        runtime_dir = os.environ.get("WINWHISPERPLUS_WHISPERCPP_DIR")
-        if runtime_dir:
-            return Path(runtime_dir) / "whisper-cli.exe"
-        if getattr(sys, "frozen", False):
-            bundle_dir = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
-            return bundle_dir / "whispercpp" / "whisper-cli.exe"
-        return Path(__file__).resolve().parents[1] / "build" / "whispercpp-runtime" / "whisper-cli.exe"
+        return runtime_executable("whispercpp")
 
     @staticmethod
     def _is_valid_compute_device(compute_device: str) -> bool:

@@ -50,6 +50,8 @@ $previousConfiguration = $env:WINWHISPERPLUS_BUILD_CONFIGURATION
 $previousPackage = $env:WINWHISPERPLUS_PACKAGE_NAME
 $previousWhisper = $env:WINWHISPERPLUS_WHISPERCPP_DIR
 $previousTextOptimizer = $env:WINWHISPERPLUS_TEXTOPTIMIZER_DIR
+$previousWhisperCpu = $env:WINWHISPERPLUS_WHISPERCPP_CPU_DIR
+$previousTextCpu = $env:WINWHISPERPLUS_TEXTOPTIMIZER_CPU_DIR
 Push-Location $repoRoot
 try {
     # Preparation never increments VERSION, signs files, builds an installer,
@@ -76,6 +78,11 @@ for filename in sys.argv[1:]:
         (Join-Path $env:WINWHISPERPLUS_WHISPERCPP_DIR "whisper-server.exe") `
         (Join-Path $env:WINWHISPERPLUS_TEXTOPTIMIZER_DIR "llama-server.exe")
     if ($LASTEXITCODE -ne 0) { throw "Laufzeiten muessen fuer x64 gebaut sein." }
+    & $pythonExe -c $validateArchitecture `
+        (Join-Path $env:WINWHISPERPLUS_WHISPERCPP_CPU_DIR "whisper-cli.exe") `
+        (Join-Path $env:WINWHISPERPLUS_WHISPERCPP_CPU_DIR "whisper-server.exe") `
+        (Join-Path $env:WINWHISPERPLUS_TEXTOPTIMIZER_CPU_DIR "llama-server.exe")
+    if ($LASTEXITCODE -ne 0) { throw "Laufzeiten muessen fuer x64 gebaut sein." }
 
     $env:WINWHISPERPLUS_BUILD_CONFIGURATION = $Configuration
     $env:WINWHISPERPLUS_PACKAGE_NAME = $Configuration
@@ -87,11 +94,15 @@ for filename in sys.argv[1:]:
     if (-not (Test-Path -LiteralPath $executable)) { throw "Build-Ausgabe fehlt: $executable" }
     & $pythonExe -c $validateArchitecture $executable
     if ($LASTEXITCODE -ne 0) { throw "Build-Ausgabe ist keine x64-Anwendung." }
+    & $pythonExe (Join-Path $PSScriptRoot "runtime_bundle.py") --package $outputDirectory
+    if ($LASTEXITCODE -ne 0) { throw "Paketabhaengigkeiten sind unvollstaendig." }
     Write-Host "Build erfolgreich: $executable"
 } finally {
     $env:WINWHISPERPLUS_BUILD_CONFIGURATION = $previousConfiguration
     $env:WINWHISPERPLUS_PACKAGE_NAME = $previousPackage
     $env:WINWHISPERPLUS_WHISPERCPP_DIR = $previousWhisper
     $env:WINWHISPERPLUS_TEXTOPTIMIZER_DIR = $previousTextOptimizer
+    $env:WINWHISPERPLUS_WHISPERCPP_CPU_DIR = $previousWhisperCpu
+    $env:WINWHISPERPLUS_TEXTOPTIMIZER_CPU_DIR = $previousTextCpu
     Pop-Location
 }

@@ -11,6 +11,7 @@ import urllib.request
 import urllib.error
 
 from utils.resources import resource_path, app_version
+from utils.downloads import open_https
 
 CATALOG_URL = "https://github.com/Falk-orgAnice/WinWhisperPlus/releases/latest/download/model-catalog.json"
 
@@ -168,7 +169,7 @@ class ModelManager:
         temporary = self.directory / f"{model.filename}.{uuid.uuid4().hex}.part"
         digest, written = hashlib.sha256(), 0
         try:
-            with urllib.request.urlopen(model.url, timeout=30) as response, temporary.open("wb") as output:
+            with open_https(model.url, timeout=30) as response, temporary.open("wb") as output:
                 while chunk := response.read(1024 * 1024):
                     if cancel and cancel.is_set():
                         raise Cancelled("Cancelled")
@@ -191,7 +192,7 @@ class ModelManager:
 
     def refresh(self):
         try:
-            with urllib.request.urlopen(CATALOG_URL, timeout=30) as response:
+            with open_https(CATALOG_URL, timeout=30) as response:
                 data = response.read(1024 * 1024 + 1)
         except urllib.error.HTTPError as exc:
             if exc.code == 404:

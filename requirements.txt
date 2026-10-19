@@ -10,3 +10,5 @@ pywin32>=306
 Pillow>=10.0.0
 pyautogui>=0.9.54
 imageio-ffmpeg==0.6.0
+certifi>=2026.10.18
+truststore>=0.10.5
