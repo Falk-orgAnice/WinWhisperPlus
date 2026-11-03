@@ -162,3 +162,50 @@ def test_optimizer_uses_matching_runtime_and_arguments(device, runtimes, tmp_pat
             assert commands[0][-2:] == ["--device", "Vulkan0"]
     finally:
         optimizer.close()
+
+
+@pytest.mark.parametrize("name", ["NVIDIA GeForce RTX 4070", "Intel(R) Arc(TM) A770 Graphics",
+                                  "Intel(R) UHD Graphics 770", "AMD Radeon RX 7900 GRE"])
+def test_vulkan_probe_is_independent_of_vendor(name, runtimes, monkeypatch):
+    monkeypatch.setattr(runtime.subprocess, "run", lambda *_args, **_kw: SimpleNamespace(
+        returncode=0, stdout=f"Available devices:\n  Vulkan1: {name} (8192 MiB, 6000 MiB free)",
+        stderr=f"ggml_vulkan: 1 = {name} (proprietary driver) | uma: 1 | fp16: 1"))
+    assert runtime.vulkan_devices(runtimes["whispercpp", False]) == [(1, name)]
+    assert runtime.vulkan_devices(runtimes["textoptimizer", False], kind="textoptimizer") == [(1, f"{name} (8192 MiB, 6000 MiB free)")]
+    assert runtime.select_runtime("whispercpp", "gpu:1")[1] == "gpu:1"
+    assert runtime.select_runtime("textoptimizer", "gpu:1")[1] == "gpu:1"
+
+
+def test_text_optimizer_maps_same_gpu_when_runtime_order_differs(runtimes, tmp_path, monkeypatch):
+    devices = {"whispercpp": [(0, "Intel(R) UHD Graphics (Intel proprietary driver)"),
+                               (1, "NVIDIA GeForce RTX 4070 (NVIDIA proprietary driver)")],
+               "textoptimizer": [(0, "NVIDIA GeForce RTX 4070 (8192 MiB, 7000 MiB free)"),
+                                 (1, "Intel(R) UHD Graphics (1024 MiB, 900 MiB free)")]}
+    monkeypatch.setattr(runtime, "vulkan_devices", lambda _exe, *, kind: devices[kind])
+    assert runtime.select_runtime("textoptimizer", "gpu:1") == (runtimes["textoptimizer", False], "gpu:0")
+    model = tmp_path / "model.gguf"
+    model.touch()
+    optimizer = TextOptimizer(compute_device="gpu:1", model_path=model)
+    monkeypatch.setattr(optimizer, "_verify_model_hash", lambda: None)
+    commands = []
+    monkeypatch.setattr("core.text_optimizer.subprocess.Popen", lambda command, **_kw: commands.append(command)
+                        or SimpleNamespace(poll=lambda: None, terminate=lambda: None, wait=lambda **_kw: 0))
+    monkeypatch.setattr("core.text_optimizer.urllib.request.urlopen", lambda *_a, **_kw: io.BytesIO())
+    try:
+        optimizer._ensure_server()
+        assert commands[0][-2:] == ["--device", "Vulkan0"]
+    finally:
+        optimizer.close()
+
+
+def test_duplicate_gpu_names_are_not_silently_mismatched(runtimes, monkeypatch):
+    monkeypatch.setattr(runtime, "vulkan_devices", lambda _exe, *, kind: [(0, "NVIDIA RTX"), (1, "NVIDIA RTX")])
+    with pytest.raises(RuntimeError, match="nicht eindeutig"):
+        runtime.select_runtime("textoptimizer", "gpu:1")
+
+
+def test_nvidia_driver_name_without_driver_suffix(runtimes, monkeypatch):
+    monkeypatch.setattr(runtime.subprocess, "run", lambda *_a, **_k: SimpleNamespace(
+        returncode=0, stdout="Available devices:\n  Vulkan0: NVIDIA GeForce RTX 4070 (12282 MiB, 11000 MiB free)",
+        stderr="ggml_vulkan: 0 = NVIDIA GeForce RTX 4070 (NVIDIA) | uma: 0 | fp16: 1"))
+    assert runtime.select_runtime("textoptimizer", "gpu:0")[1] == "gpu:0"

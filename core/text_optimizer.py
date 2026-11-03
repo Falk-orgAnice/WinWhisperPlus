@@ -413,8 +413,8 @@ class TextOptimizer:
             "--parallel", "1",
             "--n-gpu-layers", "0" if self._effective_compute_device == "cpu" else "999",
         ]
-        if self._compute_device.startswith("gpu:"):
-            command.extend(["--device", f"Vulkan{self._compute_device[4:]}"])
+        if self._effective_compute_device.startswith("gpu:"):
+            command.extend(["--device", f"Vulkan{self._effective_compute_device[4:]}"])
         self._server_process = subprocess.Popen(
             command,
             cwd=self._executable_path.parent,

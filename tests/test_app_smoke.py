@@ -342,3 +342,17 @@ class TestLiveTranscription:
         assert app.get_status() in ("inserted", "ready")
         # The live partial OR the final text should have reached the sink
         assert app.get_history() == ["live text"]
+
+
+def test_hotkey_reveals_status_window_even_if_rules_block_recording(qapp, monkeypatch):
+    from types import SimpleNamespace
+    application, recorder, _ = _make_app(qapp)
+    calls = []
+    application._test_mode = False
+    application._status_window = SimpleNamespace(reveal=lambda: calls.append("shown"))
+    monkeypatch.setattr(application, "_prepare_rules", lambda _settings: False)
+    application._toggle_recording()
+    assert calls == ["shown"]
+    assert not recorder.is_recording
+    application._test_mode = True
+    application.shutdown()

@@ -490,6 +490,8 @@ class Application(QObject):
 
     @pyqtSlot()
     def _toggle_recording(self) -> None:
+        if not self._test_mode:
+            self._status_window.reveal()
         if self._recorder.is_recording:
             self._stop_recording()
         else:
@@ -504,9 +506,7 @@ class Application(QObject):
         if not self._prepare_rules(self._settings):
             return
         if not self._test_mode:
-            # Ensure window is visible when recording starts
-            self._status_window.raise_()
-            self._status_window.showNormal()
+            self._status_window.reveal()
         LOGGER.info("Aufnahme gestartet")
         self._recording_started_at = datetime.now()
         self._last_recording_duration_seconds = 0.0

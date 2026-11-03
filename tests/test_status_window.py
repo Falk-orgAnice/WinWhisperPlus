@@ -77,3 +77,19 @@ def test_english_ui_translates_status_and_hotkey_label(qapp):
     assert window._hotkey_label.text() == "Ctrl+Alt+H"
 
     window.close()
+
+
+def test_saved_position_from_missing_monitor_is_restored_to_visible_screen(qapp, tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    settings = Settings()
+    settings.window_position_x = 100000
+    settings.window_position_y = 100000
+    window = StatusWindow(settings=settings)
+    window.load_position()
+    assert any(screen.availableGeometry().intersects(window.geometry()) for screen in qapp.screens())
+    window.hide()
+    window.move(100000, 100000)
+    window.reveal()
+    assert window.isVisible()
+    assert any(screen.availableGeometry().intersects(window.geometry()) for screen in qapp.screens())
+    window.close()

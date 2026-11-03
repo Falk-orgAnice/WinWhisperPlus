@@ -69,17 +69,45 @@ def vulkan_devices(executable: Path, *, kind: str = "whispercpp") -> list[tuple[
             cwd=executable.parent,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as exc:
+        LOGGER.warning("Vulkan device probe failed for %s: %s", executable, exc)
         return []
     if getattr(result, "returncode", 0) != 0:
+        LOGGER.warning("Vulkan device probe failed for %s: exit=%s, output=%s", executable,
+                       result.returncode, (result.stderr or result.stdout)[-2000:])
         return []
     pattern = _WHISPER_DEVICE if kind == "whispercpp" else _LLAMA_DEVICE
     devices = []
     for line in f"{result.stdout}\n{result.stderr}".splitlines():
         match = pattern.match(line.strip())
         if match:
-            devices.append((int(match[1]), match[2].strip()))
+            name = match[2].strip()
+            if kind == "whispercpp":
+                # ggml appends a parenthesized driver name after deviceName.
+                name = re.sub(r"\s+\([^()]*\)$", "", name)
+            devices.append((int(match[1]), name))
     return devices
+
+
+def _device_name(name: str) -> str:
+    """Remove runtime-added metadata without altering names such as Intel(R)."""
+    name = re.sub(r"\s*\([^()]*driver\)\s*$", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"\s*\(\d+\s+MiB(?:,\s*\d+\s+MiB free)?\)\s*$", "", name, flags=re.IGNORECASE)
+    return " ".join(name.casefold().split())
+
+
+def _text_device_for_speech_device(index: int, text_devices: list[tuple[int, str]]) -> int:
+    speech_devices = vulkan_devices(runtime_executable("whispercpp"), kind="whispercpp")
+    names = [_device_name(name) for number, name in speech_devices if number == index]
+    if len(names) != 1:
+        raise RuntimeError(f"Die ausgew\u00e4hlte Vulkan-GPU (gpu:{index}) ist f\u00fcr Spracherkennung nicht verf\u00fcgbar.")
+    name = names[0]
+    matches = [number for number, candidate in text_devices if _device_name(candidate) == name]
+    # Names alone cannot distinguish identical adapters. Do not silently choose
+    # the wrong device if either runtime reports more than one with this name.
+    if len(matches) != 1 or sum(_device_name(candidate) == name for _, candidate in speech_devices) != 1:
+        raise RuntimeError(f"Die ausgew\u00e4hlte Vulkan-GPU (gpu:{index}) kann f\u00fcr die Textoptimierung nicht eindeutig zugeordnet werden. Bitte Automatisch oder CPU w\u00e4hlen.")
+    return matches[0]
 
 
 def select_runtime(kind: str, device: str) -> tuple[Path, str]:
@@ -93,9 +121,13 @@ def select_runtime(kind: str, device: str) -> tuple[Path, str]:
             LOGGER.info("Runtime %s | requested=%s effective=Vulkan executable=%s", kind, device, executable)
             return executable, "auto"
         if device.startswith("gpu:"):
-            if int(device[4:]) in {index for index, _ in devices}:
-                LOGGER.info("Runtime %s | requested=%s executable=%s", kind, device, executable)
-                return executable, device
+            selected = int(device[4:])
+            if kind == "textoptimizer" and devices:
+                selected = _text_device_for_speech_device(selected, devices)
+            if selected in {index for index, _ in devices}:
+                effective = f"gpu:{selected}"
+                LOGGER.info("Runtime %s | requested=%s effective=%s executable=%s", kind, device, effective, executable)
+                return executable, effective
             raise RuntimeError(
                 f"Die ausgewählte Vulkan-GPU ({device}) ist nicht verfügbar. "
                 "Bitte in den Einstellungen Automatisch oder CPU wählen."

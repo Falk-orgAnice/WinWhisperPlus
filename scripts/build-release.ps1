@@ -198,7 +198,7 @@ function Build-WhisperCppVulkanRuntime {
     } "VAD-Zeitmarken konnten nicht korrigiert werden."
     Invoke-NativeCommand {
         & $cmakeExe -S $whisperCppSourceDir -B $whisperCppBuildDir `
-            -A x64 -DGGML_VULKAN=1 -DWHISPER_BUILD_TESTS=OFF `
+            -A x64 -DGGML_VULKAN=1 -DGGML_NATIVE=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_BMI2=OFF -DWHISPER_BUILD_TESTS=OFF `
             "-DVulkan_ROOT=$vulkanSdk"
     } "whisper.cpp konnte nicht fuer Vulkan konfiguriert werden."
     Invoke-NativeCommand {
@@ -213,8 +213,10 @@ function Build-WhisperCppVulkanRuntime {
     if (-not (Test-Path (Join-Path $cli.DirectoryName "whisper-server.exe"))) {
         throw "Der whisper.cpp-Build hat keine whisper-server.exe erzeugt."
     }
+    Remove-BuildPath $whisperCppRuntimeDir
     New-Item -ItemType Directory -Force -Path $whisperCppRuntimeDir | Out-Null
     Copy-Item -Path (Join-Path $cli.DirectoryName "*") -Destination $whisperCppRuntimeDir -Force
+    Set-Content -LiteralPath (Join-Path $whisperCppRuntimeDir "BUILD-VULKAN.txt") -Value "whisper.cpp $whisperCppVersion Vulkan baseline-x64 v1" -Encoding ascii
     $env:WINWHISPERPLUS_WHISPERCPP_DIR = $whisperCppRuntimeDir
 }
 
@@ -237,7 +239,7 @@ function Build-TextOptimizerRuntime {
     } "llama.cpp konnte nicht abgerufen werden."
     Invoke-NativeCommand {
         & $cmakeExe -S $llamaCppSourceDir -B $llamaCppBuildDir `
-            -A x64 -DGGML_VULKAN=1 -DLLAMA_BUILD_TESTS=OFF `
+            -A x64 -DGGML_VULKAN=1 -DGGML_NATIVE=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_BMI2=OFF -DLLAMA_BUILD_TESTS=OFF `
             "-DVulkan_ROOT=$vulkanSdk"
     } "llama.cpp konnte nicht fuer Vulkan konfiguriert werden."
     Invoke-NativeCommand {
@@ -249,11 +251,13 @@ function Build-TextOptimizerRuntime {
     if (-not $server) {
         throw "Der llama.cpp-Build hat keine llama-server.exe erzeugt."
     }
+    Remove-BuildPath $textOptimizerRuntimeDir
     New-Item -ItemType Directory -Force -Path $textOptimizerRuntimeDir | Out-Null
     Copy-Item -Path (Join-Path $server.DirectoryName "*") -Destination $textOptimizerRuntimeDir -Force
     Copy-Item -Path (Join-Path $llamaCppSourceDir "LICENSE") `
         -Destination (Join-Path $textOptimizerRuntimeDir "LICENSE-llama.cpp") -Force
 
+    Set-Content -LiteralPath (Join-Path $textOptimizerRuntimeDir "BUILD-VULKAN.txt") -Value "llama.cpp $llamaCppVersion Vulkan baseline-x64 v1" -Encoding ascii
     $env:WINWHISPERPLUS_TEXTOPTIMIZER_DIR = $textOptimizerRuntimeDir
 }
 
@@ -488,7 +492,9 @@ Invoke-Step "Bereinige alte Build-Ausgaben" {
 
 Invoke-Step "Baue whisper.cpp mit Vulkan" {
     if ($ReuseRuntimes -and (Test-Path (Join-Path $whisperCppRuntimeDir "whisper-cli.exe")) -and
-        (Test-Path (Join-Path $whisperCppRuntimeDir "whisper-server.exe"))) {
+        (Test-Path (Join-Path $whisperCppRuntimeDir "whisper-server.exe")) -and
+        (Test-Path (Join-Path $whisperCppRuntimeDir "BUILD-VULKAN.txt")) -and
+        (Get-Content -Raw (Join-Path $whisperCppRuntimeDir "BUILD-VULKAN.txt")).Trim() -eq "whisper.cpp $whisperCppVersion Vulkan baseline-x64 v1") {
         Write-Host "Verwende vorhandene whisper.cpp-Laufzeit."
     } else {
         Build-WhisperCppVulkanRuntime
@@ -496,7 +502,9 @@ Invoke-Step "Baue whisper.cpp mit Vulkan" {
 }
 
 Invoke-Step "Baue lokalen Textoptimierer mit Vulkan" {
-    if ($ReuseRuntimes -and (Test-Path (Join-Path $textOptimizerRuntimeDir "llama-server.exe"))) {
+    if ($ReuseRuntimes -and (Test-Path (Join-Path $textOptimizerRuntimeDir "llama-server.exe")) -and
+        (Test-Path (Join-Path $textOptimizerRuntimeDir "BUILD-VULKAN.txt")) -and
+        (Get-Content -Raw (Join-Path $textOptimizerRuntimeDir "BUILD-VULKAN.txt")).Trim() -eq "llama.cpp $llamaCppVersion Vulkan baseline-x64 v1") {
         Write-Host "Verwende vorhandene llama.cpp-Laufzeit."
     } else {
         Build-TextOptimizerRuntime

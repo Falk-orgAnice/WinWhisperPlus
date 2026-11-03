@@ -4,9 +4,9 @@ Small always-visible status window that shows the current application state.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QRect, pyqtSignal
 from PyQt6.QtGui import QMoveEvent, QContextMenuEvent, QIcon, QPixmap, QColor, QPainter, QFont
-from PyQt6.QtWidgets import QLabel, QWidget, QVBoxLayout, QMenu, QProgressBar
+from PyQt6.QtWidgets import QApplication, QLabel, QWidget, QVBoxLayout, QMenu, QProgressBar
 
 from config.localization import tr
 from utils.resources import resource_path
@@ -131,6 +131,23 @@ class StatusWindow(QWidget):
         """Load and restore the window position from settings."""
         if self._settings and self._settings.window_position_x is not None and self._settings.window_position_y is not None:
             self.move(self._settings.window_position_x, self._settings.window_position_y)
+        self.ensure_on_screen()
+
+    def ensure_on_screen(self) -> None:
+        """Recover a position saved on a monitor unavailable on this computer."""
+        screens = QApplication.screens()
+        rect = QRect(self.pos(), self.size())
+        if screens and not any(screen.availableGeometry().intersected(rect).width() >= 40
+                               and screen.availableGeometry().intersected(rect).height() >= 30
+                               for screen in screens):
+            area = QApplication.primaryScreen().availableGeometry()
+            self.move(area.x() + max(0, (area.width() - self.width()) // 2),
+                      area.y() + max(0, (area.height() - self.height()) // 2))
+
+    def reveal(self) -> None:
+        self.ensure_on_screen()
+        self.showNormal()
+        self.raise_()
 
     def show_message(self, message: str, duration_ms: int = 2500) -> None:
         """Show a temporary overlay message for *duration_ms* milliseconds."""
