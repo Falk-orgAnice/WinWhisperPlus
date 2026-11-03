@@ -24,6 +24,7 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, QTimer, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
+from utils.paths import config_directory
 from config.localization import localized_spoken_language_name, tr
 from config.settings import Settings
 from core.hotkey_manager import HotkeyManager
@@ -50,8 +51,7 @@ def _build_logger() -> logging.Logger:
     if logger.handlers:
         return logger
 
-    app_data = os.environ.get("APPDATA") or str(Path.home())
-    log_dir = Path(app_data) / "WinWhisperPlus"
+    log_dir = config_directory()
     logger.setLevel(logging.INFO)
     logger.propagate = False
 

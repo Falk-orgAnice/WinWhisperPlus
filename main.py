@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import QTimer
 
+from utils.paths import config_directory
 from config.localization import tr
 from config.settings import Settings
 from gui.status_window import StatusWindow
@@ -29,7 +30,7 @@ def _startup_ui_settings():
     # Read only the language before acquiring the instance gate. Constructing
     # Settings here would migrate/save configuration during a rejected start.
     try:
-        path = Path(os.environ.get("APPDATA") or Path.home()) / "WinWhisperPlus/settings.json"
+        path = config_directory() / "settings.json"
         language = json.loads(path.read_text(encoding="utf-8")).get("ui_language", "de")
         if not isinstance(language, str):
             language = "de"
@@ -96,6 +97,17 @@ def _run(qapp) -> int:
                 if kind == "whispercpp":
                     required.append(executable.with_name("whisper-server.exe"))
         missing = [str(path) for path in required if not path.is_file()]
+        from utils.paths import portable_root, model_directory
+        if portable_root():
+            from core.models import ModelManager
+            expected_models = portable_root() / "data" / "models"
+            if (model_directory() != expected_models or ModelManager().directory != expected_models
+                    or application._transcriber_live._model_dir != expected_models
+                    or application._transcriber_final._model_dir != expected_models
+                    or application._text_optimizer._model_path.parent != expected_models
+                    or settings._path.parent != portable_root() / "data"):
+                missing.append("Portable data or model path mismatch")
+
         try:
             import certifi
             import ssl

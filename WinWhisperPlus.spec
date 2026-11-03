@@ -106,6 +106,13 @@ inference_dlls = {file.name.lower() for directory in (whispercpp_dir, textoptimi
 inference_dlls.add("vulkan-1.dll")
 a.binaries = [entry for entry in a.binaries
               if "/" in entry[0].replace("\\", "/") or entry[0].lower() not in inference_dlls]
+# The sounddevice wheel includes DLLs for architectures other than this x64 build.
+def keep_x64_audio(entry):
+    name = entry[0].replace("\\", "/").lower()
+    return not ("_sounddevice_data/portaudio-binaries/" in name and
+                ("32bit" in name or "arm64" in name))
+a.binaries = [entry for entry in a.binaries if keep_x64_audio(entry)]
+a.datas = [entry for entry in a.datas if keep_x64_audio(entry)]
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(

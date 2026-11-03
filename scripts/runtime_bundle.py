@@ -59,7 +59,7 @@ def stage_vulkan_loader(source: Path, directories):
 _SYSTEM = set("""advapi32 avrt bcrypt bcryptprimitives cfgmgr32 clbcatq comctl32
 comdlg32 crypt32 cryptbase cryptsp d2d1 d3d11 d3d12 d3d9 dcomp dbghelp dnsapi
 dwmapi dwrite dxcore dxgi dxva2 gdi32 hid imm32 iphlpapi kernel32 kernelbase
-mf mfplat mfreadwrite mfuuid mpr msimg32 msvcrt ncrypt netapi32 normaliz ntdll
+mf mfplat mfreadwrite mfuuid mpr mscms msimg32 msvcrt ncrypt netapi32 normaliz ntdll
 ntmarta ole32 oleacc oleaut32 opengl32 pdh powrprof propsys psapi rpcrt4
 secur32 setupapi shell32 shcore shlwapi sspicli user32 userenv usp10 uxtheme
 version win32u windowscodecs winhttp wininet winmm winspool wintrust wldap32

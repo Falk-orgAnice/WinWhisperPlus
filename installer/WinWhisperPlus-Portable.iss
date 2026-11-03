@@ -36,6 +36,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "..\dist\WinWhisperPlus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+Source: "portable.txt"; DestDir: "{app}"; Flags: ignoreversion
+
 [Icons]
 Name: "{userprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{userprograms}\{#AppName} Benutzerhandbuch"; Filename: "{app}\_internal\docs\WinWhisperPlus Benutzerhandbuch.pdf"
@@ -44,4 +46,4 @@ Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
-; No profile cleanup: ZIP, classic setup and Portable share settings/models.
+; User-created data in {app}\data is not removed by uninstall.

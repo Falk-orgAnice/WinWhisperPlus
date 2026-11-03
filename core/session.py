@@ -11,6 +11,7 @@ import shutil
 import threading
 import uuid
 import ctypes
+from utils.paths import local_directory
 
 if TYPE_CHECKING:
     from config.settings import Settings
@@ -69,7 +70,7 @@ def _process_exists(pid: int) -> bool:
 
 class SessionStore:
     def __init__(self, root: Path | None = None):
-        self.root = root or Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "WinWhisperPlus" / "sessions"
+        self.root = root or local_directory() / "sessions"
         self.root.mkdir(parents=True, exist_ok=True)
         self._cleanup_abandoned()
         self.directory = self.root / uuid.uuid4().hex

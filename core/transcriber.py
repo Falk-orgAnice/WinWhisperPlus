@@ -18,6 +18,7 @@ from typing import Optional
 from core.audio import Segment
 from core.models import ModelManager, Cancelled
 from core.cancellation import interrupt_on_cancel
+from utils.paths import model_directory
 from utils.runtime import runtime_executable, select_runtime, vulkan_devices
 
 import numpy as np
@@ -68,8 +69,7 @@ class Transcriber:
         self._custom_executable = executable_path is not None
         self._runtime_selected = False
         self._effective_compute_device = compute_device
-        app_data = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home())
-        self._model_dir = Path(model_dir).resolve() if model_dir else Path(app_data) / "WinWhisperPlus" / "models"
+        self._model_dir = Path(model_dir).resolve() if model_dir else model_directory()
         self._lock = threading.Lock()
         self._compute_device = COMPUTE_DEVICE_AUTO
         self._keep_model_loaded = bool(keep_model_loaded)

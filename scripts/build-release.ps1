@@ -8,7 +8,7 @@ param(
     [switch]$ReuseEnvironment,
     [string]$AppVersion,
     [string]$InnoSetupCompilerPath,
-    [string]$CertificateThumbprint = "d7e33e34882d111c4a3eb5cf0175bea39ecf8a29",
+    [string]$CertificateThumbprint,
     [string]$TimestampServer = "http://timestamp.digicert.com"
 )
 
@@ -394,42 +394,26 @@ function Get-ReleaseVersion {
 }
 
 function Set-CodeSignatureWithPowerShell {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$FilePath
-    )
+    param([Parameter(Mandatory = $true)][string]$FilePath)
 
-    $normalizedThumbprint = $CertificateThumbprint.Replace(" ", "").ToUpperInvariant()
-    $certificate = Get-Item "Cert:\CurrentUser\My\$normalizedThumbprint" -ErrorAction SilentlyContinue
-    if (-not $certificate) {
-        $certificate = Get-Item "Cert:\LocalMachine\My\$normalizedThumbprint" -ErrorAction SilentlyContinue
+    $certificates = @(Get-ChildItem Cert:\CurrentUser\My, Cert:\LocalMachine\My -CodeSigningCert -ErrorAction SilentlyContinue |
+        Where-Object { $_.HasPrivateKey -and $_.NotBefore -le (Get-Date) -and $_.NotAfter -gt (Get-Date) })
+    if ($CertificateThumbprint) {
+        $normalizedThumbprint = ($CertificateThumbprint -replace '\s', '').ToUpperInvariant()
+        $certificates = @($certificates | Where-Object { $_.Thumbprint -eq $normalizedThumbprint })
     }
-    if (-not $certificate) {
-        $certificate = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue |
-            Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
-            Select-Object -First 1
+    if ($certificates.Count -ne 1) {
+        throw "Es wurde keine eindeutige gueltige Codesignatur mit privatem Schluessel gefunden ($($certificates.Count) Treffer). SimplySign Desktop anmelden und ggf. -CertificateThumbprint angeben."
     }
-    if (-not $certificate) {
-        $certificate = Get-ChildItem "Cert:\LocalMachine\My" -ErrorAction SilentlyContinue |
-            Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
-            Select-Object -First 1
+    $certificate = $certificates[0]
+    Write-Host "Signiere mit $($certificate.Subject) ($($certificate.Thumbprint))"
+    $signature = Set-AuthenticodeSignature -FilePath $FilePath -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer $TimestampServer
+    if ($signature.Status -ne 'Valid') {
+        throw "Signierung fehlgeschlagen: $FilePath. Status: $($signature.Status). $($signature.StatusMessage)"
     }
-
-    if (-not $certificate) {
-        throw "Zertifikat mit Thumbprint $CertificateThumbprint wurde im Benutzer- oder Maschinenzertifikatsspeicher nicht gefunden."
-    }
-    if (-not $certificate.HasPrivateKey) {
-        throw "Zertifikat mit Thumbprint $CertificateThumbprint hat keinen verfuegbaren privaten Schluessel."
-    }
-
-    $signature = Set-AuthenticodeSignature `
-        -FilePath $FilePath `
-        -Certificate $certificate `
-        -HashAlgorithm SHA256 `
-        -TimestampServer $TimestampServer
-
-    if ($signature.Status -ne "Valid") {
-        throw "PowerShell-Signierung ist fehlgeschlagen. Status: $($signature.Status). $($signature.StatusMessage)"
+    $verified = Get-AuthenticodeSignature -FilePath $FilePath
+    if ($verified.Status -ne 'Valid' -or -not $verified.TimeStamperCertificate) {
+        throw "Signatur oder Zeitstempel konnte nicht verifiziert werden: $FilePath. Status: $($verified.Status)."
     }
 }
 
@@ -567,6 +551,10 @@ Invoke-Step "Erstelle ZIP-Paket" {
     }
     Compress-Archive -Path (Join-Path $appDistDir "*") -DestinationPath $zipPath -Force
     Copy-Item -LiteralPath $zipPath -Destination $portableZipPath -Force
+    Compress-Archive -Path (Join-Path $repoRoot "installer\portable.txt") -DestinationPath $portableZipPath -Update
+    Invoke-NativeCommand {
+        & $pythonExe (Join-Path $PSScriptRoot "check-portable.py") $portableZipPath
+    } "Portable-Paketpruefung fehlgeschlagen."
 }
 
 if (-not $SkipInstaller) {

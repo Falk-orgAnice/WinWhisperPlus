@@ -8,6 +8,7 @@ import os
 import copy
 import tempfile
 from pathlib import Path
+from utils.paths import config_directory, portable_root
 from core.rule_store import RuleStore, RulesFileError, ANY_REVISION
 
 DEFAULT_SETTINGS = {
@@ -58,8 +59,7 @@ UI_LANGUAGE_CYCLE = ["de", "pl", "en"]
 
 def _config_path() -> Path:
     """Return path to the JSON settings file."""
-    app_data = os.environ.get("APPDATA") or Path.home()
-    config_dir = Path(app_data) / "WinWhisperPlus"
+    config_dir = config_directory()
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir / "settings.json"
 
@@ -90,7 +90,7 @@ class Settings:
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
-        load_path = self._path if self._path.exists() else _legacy_config_path()
+        load_path = self._path if self._path.exists() or portable_root() else _legacy_config_path()
         if load_path.exists():
             try:
                 with open(load_path, "r", encoding="utf-8") as fh:

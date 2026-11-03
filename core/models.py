@@ -1,6 +1,8 @@
 """Revision-pinned model catalogue and verified, cancellable installations."""
 from __future__ import annotations
 
+from utils.paths import model_directory
+
 from dataclasses import dataclass, asdict
 import hashlib
 import json
@@ -73,7 +75,7 @@ def parse_catalog(data: dict) -> dict[str, ModelSpec]:
 
 class ModelManager:
     def __init__(self, directory: Path | None = None):
-        self.directory = directory or Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "WinWhisperPlus" / "models"
+        self.directory = directory or model_directory()
         self.catalog = parse_catalog(json.loads(Path(resource_path("assets/model-catalog.json")).read_text(encoding="utf-8")))
         self._bundled_catalog = dict(self.catalog)
         cached = self.directory / "catalog.json"

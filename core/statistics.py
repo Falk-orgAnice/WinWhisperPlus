@@ -7,11 +7,11 @@ import os
 import threading
 from datetime import datetime
 from pathlib import Path
+from utils.paths import config_directory
 
 
 def _statistics_path() -> Path:
-    app_data = os.environ.get("APPDATA") or Path.home()
-    stats_dir = Path(app_data) / "WinWhisperPlus"
+    stats_dir = config_directory()
     stats_dir.mkdir(parents=True, exist_ok=True)
     return stats_dir / "statistics.json"
 

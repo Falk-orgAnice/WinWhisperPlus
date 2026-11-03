@@ -43,31 +43,24 @@ ROCm, CUDA, and the Python package `openai-whisper` are not required.
 
 ### Portable Edition (Windows x64)
 
-The Portable Edition runs with a normal Windows user account. No administrator
-rights, Python installation, VC Redistributable installer, or Vulkan SDK are
-required. Download `WinWhisperPlus-Portable-<version>-win-x64.zip`, extract the
-**entire** archive to a folder in your user profile, and run `WinWhisperPlus.exe`.
-Keep `_internal` beside the EXE. The program writes its data into your user
-profile, so the application folder can be read-only after extraction.
+The Portable Edition can run from a writable USB drive. Extract the entire
+`WinWhisperPlus-Portable-<version>-win-x64.zip` to a folder and run
+`WinWhisperPlus.exe`. Keep `_internal` and `portable.txt` beside the EXE.
+Alternatively, use the Portable setup and select a writable folder, including
+a USB drive. The setup creates shortcuts on the computer where it runs.
 
-Alternatively, `WinWhisperPlus-Portable-Setup-<version>.exe` installs only for
-the current user, by default into
-`%LOCALAPPDATA%\Programs\WinWhisperPlus Portable`. It creates user Start menu
-entries and an optional desktop shortcut. It cannot request an all-users
-installation. Uninstall removes the program and shortcuts and keeps user data.
-
-Settings, correction rules, statistics and logs stay in
-`%APPDATA%\WinWhisperPlus`. Models and temporary session audio stay in
-`%LOCALAPPDATA%\WinWhisperPlus\models` and `sessions`. The ZIP, Portable setup
-and existing installations share these paths and the per-user single-instance
-guard. There is no migration or separate Portable profile.
-
-On first launch, the selected speech model and selected text model download
-into the user's model directory and are verified. Additional models download
-when needed; models are not included in either distribution. Existing valid
-models are reused and work offline. Internet access and sufficient free disk
-space are needed for new model downloads; a failed download can be retried
-without reinstalling the program.
+Portable settings, correction rules, statistics, logs, session data, and models
+are stored under the `data` folder next to the EXE. Speech and text models are
+under `data/models`; they are never loaded from the installed edition's profile.
+The first use downloads selected models after verification; the installer and
+ZIP do not contain model weights. Download every model you need before taking
+the folder offline. Copy the entire folder, including `data` and `portable.txt`,
+to another Windows x64 computer to reuse those models without downloading them.
+Existing models can also be copied from `%LOCALAPPDATA%\WinWhisperPlus\models`
+including their receipt and catalogue files; the application verifies them.
+Portable data is separate from the normal installation and is retained on
+uninstall. Existing absolute correction-rule paths may refer to a particular PC;
+use the default rule file inside `data` for portability.
 
 HTTPS downloads use Windows CryptoAPI through `truststore` and a bundled Mozilla
 CA certificate set from `certifi`. A fresh Windows VM does not need a separate
@@ -91,10 +84,10 @@ error dialogs; failures are handled by the application.
 Automatic text insertion into programs running as administrator is restricted
 by Windows; use an ordinary target application or copy text from history.
 
-To update the ZIP, quit WinWhisperPlus and extract the new version into a new
-folder in your profile. Start its EXE; settings and models are reused. To update
-the user installation, quit the app and run the newer Portable setup. Deleting
-an extracted folder also leaves user data intact.
+To update the ZIP, quit WinWhisperPlus, extract the new archive over the program
+files and preserve the `data` folder. To update the Portable setup, run the new
+setup and select the same directory; it preserves the `data` folder. Back up the
+folder before replacing files.
 
 For development or direct source usage:
 
@@ -175,9 +168,19 @@ Build the release package on a Windows development machine with Python 3.10 to
 Each build automatically increments the patch version stored in `VERSION`
 unless `-AppVersion` is specified explicitly.
 
-By default, the build script signs `WinWhisperPlus.exe` with PowerShell
-Authenticode signing and the configured certificate thumbprint before creating
-the ZIP package and installer.
+By default, the release build signs `WinWhisperPlus.exe` before packaging and
+signs both setup executables after compilation. Each signature is verified and
+must include a timestamp. Sign in to SimplySign Desktop first so its valid code
+signing certificate and private key are available in the Windows certificate
+store. If there is exactly one eligible certificate, it is selected automatically.
+If there are several, choose one explicitly:
+
+```powershell
+.\scripts\build-release.ps1 -CertificateThumbprint "YOUR_CERTIFICATE_THUMBPRINT"
+```
+
+The build fails if signing or timestamp verification fails. Third-party runtime
+binaries retain their original signatures.
 
 For local unsigned test builds:
 
